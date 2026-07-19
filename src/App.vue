@@ -13,7 +13,6 @@ const app = useAppStore()
 const nav = [
   { id: 'launcher', label: '游戏启动器', icon: Home },
   { id: 'accounts', label: '账号管理', icon: Users },
-  { id: 'settings', label: '设置', icon: Settings },
   { id: 'cloud', label: '云同步', icon: Cloud },
 ]
 

@@ -6,6 +6,10 @@ import { useAppStore } from '../composables/useAppStore'
 
 const app = useAppStore()
 const distributions = computed(() => app.state.launcher?.distributions || [])
+const currentTitle = computed(() => {
+  const game = app.currentGame.value
+  return game?.display_name || game?.app_name || game?.name || '游戏分发'
+})
 function iconOf(item) { return resourceUrl(item.launcher?.icon || item.launcher?.logo || app.currentGame.value?.icon || '') }
 async function chooseGame(event) { await app.selectGame(event.target.value); app.setView('launcher') }
 </script>
@@ -18,6 +22,6 @@ async function chooseGame(event) { await app.selectGame(event.target.value); app
       <img v-if="iconOf(item)" :src="iconOf(item)" alt="" /><span v-else>{{ String(item.distribution_id) }}</span>
     </button>
     <div v-if="!distributions.length" class="rail-empty"><Layers3 :size="17" /> 暂无分发信息</div>
-    <div class="game-title"><strong>一个图标对应一个游戏分发</strong><small>{{ app.state.gameId || '请选择游戏' }}</small></div>
+    <div class="game-title"><strong>{{ currentTitle }}</strong><small>{{ app.state.gameId || '请选择游戏' }}</small></div>
   </header>
 </template>

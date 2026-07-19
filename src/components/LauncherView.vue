@@ -101,9 +101,9 @@ function formatSize(bytes) { if (!bytes) return '0 B'; const i = Math.floor(Math
       <button v-else class="ghost show-news" @click="toggleNews"><Newspaper :size="17" /> 显示新闻</button>
 
       <div class="launch-actions glass">
-        <button v-if="!installation" class="primary large" :disabled="!distribution?.can_download || app.state.busy" @click="install"><Download /> 下载游戏</button>
-        <button v-else class="primary large" :disabled="app.state.busy" @click="start"><Play /> 开始游戏</button>
-        <button class="icon-button" title="检查并更新" :disabled="!installation || app.state.busy" @click="update"><RefreshCw /></button>
+        <button v-if="!installation" class="primary large" :disabled="!distribution?.can_download || Boolean(app.state.busy)" @click="install"><Download /> 下载游戏</button>
+        <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><Play /> 开始游戏</button>
+        <button class="icon-button" title="检查并更新" :disabled="!installation || Boolean(app.state.busy)" @click="update"><RefreshCw /></button>
         <button class="icon-button" title="设为默认安装" :disabled="!installation" @click="makeDefault"><Star /></button>
         <button class="icon-button" title="移除安装记录" :disabled="!installation" @click="remove"><Trash2 /></button>
         <button v-if="app.state.launcher?.can_import_fever" class="icon-button" title="导入发烧游戏平台记录" @click="importFever"><Import /></button>
