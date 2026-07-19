@@ -22,6 +22,11 @@ npm run build
 
 构建完成后只需部署 `dist/index.html`。它不依赖外部 JavaScript、CSS 或字体文件。
 
+`main` 分支的测试和单文件构建成功后，GitHub Actions 会把
+`dist/index.html` 自动提交到 `KKeygen/idv-login` 的
+`assets/index.html`。跨仓库写入使用只绑定目标仓库的 Deploy Key；Pull
+Request 只执行测试，不部署。
+
 ## 组件结构
 
 ```text
