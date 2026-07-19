@@ -1,0 +1,23 @@
+{
+  "name": "idv-login-webui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.25.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.2",
+    "vite-plugin-singlefile": "^2.2.0",
+    "vitest": "^3.2.4"
+  }
+}
