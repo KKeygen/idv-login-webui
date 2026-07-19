@@ -1,7 +1,17 @@
-name: CI
+name: CI/CD
+
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webui-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,3 +26,42 @@ jobs:
       - run: npm run build
       - name: Verify single-file build
         run: test "$(find dist -type f | wc -l)" -eq 1 && test -f dist/index.html
+
+  deploy:
+    name: Deploy to idv-login
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Configure deployment key
+        env:
+          DEPLOY_KEY: ${{ secrets.IDV_LOGIN_DEPLOY_KEY }}
+        run: |
+          test -n "$DEPLOY_KEY"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/idv_login_deploy
+          chmod 600 ~/.ssh/idv_login_deploy
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+      - name: Publish single-file UI
+        env:
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/idv_login_deploy -o IdentitiesOnly=yes
+        run: |
+          git clone git@github.com:KKeygen/idv-login.git target
+          cp dist/index.html target/assets/index.html
+          cd target
+          if git diff --quiet -- assets/index.html; then
+            echo "assets/index.html is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/index.html
+          git commit -m "chore: sync Vue UI (${GITHUB_SHA::7})"
+          git push origin HEAD:main
