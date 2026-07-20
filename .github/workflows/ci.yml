@@ -28,8 +28,8 @@ jobs:
         run: test "$(find dist -type f | wc -l)" -eq 1 && test -f dist/index.html
 
   deploy:
-    name: Deploy to idv-login
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    name: Deploy Fever UI field to idv-login
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/fever'
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -49,19 +49,36 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/idv_login_deploy
           chmod 600 ~/.ssh/idv_login_deploy
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-      - name: Publish single-file UI
+      - name: Publish Fever single-file UI field
         env:
           GIT_SSH_COMMAND: ssh -i ~/.ssh/idv_login_deploy -o IdentitiesOnly=yes
         run: |
           git clone git@github.com:KKeygen/idv-login.git target
-          cp dist/index.html target/assets/index.html
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import json
+          import time
+
+          html = Path('dist/index.html').read_bytes()
+          cloud_path = Path('target/assets/cloudRes.json')
+          cloud = json.loads(cloud_path.read_text(encoding='utf-8'))
+          cloud['login_base64_page_fever'] = base64.b64encode(html).decode('ascii')
+          cloud['lastModified'] = max(
+              int(time.time()), int(cloud.get('lastModified', 0)) + 1
+          )
+          cloud_path.write_text(
+              json.dumps(cloud, indent=2, ensure_ascii=False) + '\n',
+              encoding='utf-8',
+          )
+          PY
           cd target
-          if git diff --quiet -- assets/index.html; then
-            echo "assets/index.html is already up to date."
+          if git diff --quiet -- assets/cloudRes.json; then
+            echo "login_base64_page_fever is already up to date."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/index.html
-          git commit -m "chore: sync Vue UI (${GITHUB_SHA::7})"
+          git add assets/cloudRes.json
+          git commit -m "chore: sync Fever Vue UI (${GITHUB_SHA::7})"
           git push origin HEAD:main
