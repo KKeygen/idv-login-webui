@@ -10,9 +10,10 @@ describe('game compatibility', () => {
   })
 
   it('merges dynamic catalog without overriding recorded games', () => {
-    const result = normalizeGames({ games: [{ game_id: 'full-g-h55', name: 'record' }], catalog: [{ game_id: 'h55', name: 'remote' }, { game_id: 'g37' }] })
+    const result = normalizeGames({ games: [{ game_id: 'full-g-h55', name: 'record' }], catalog: [{ game_id: 'g37' }], catalog_all: [{ game_id: 'h55', name: 'remote', launcher: { main_image: 'cover' } }, { game_id: 'g37' }] })
     expect(result.merged).toHaveLength(2)
     expect(result.merged[0].name).toBe('record')
+    expect(result.merged[0].launcher.main_image).toBe('cover')
   })
 })
 

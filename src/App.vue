@@ -18,7 +18,7 @@ const nav = [
 
 let statusTimer
 onMounted(async () => {
-  try { await app.loadGames(); await app.refreshCurrent() } catch {}
+  try { await Promise.all([app.loadGames(), app.loadNativeCapabilities()]); await app.refreshCurrent() } catch {}
   statusTimer = setInterval(() => app.loadGames().catch(() => {}), 3000)
 })
 onBeforeUnmount(() => clearInterval(statusTimer))
@@ -51,7 +51,7 @@ onBeforeUnmount(() => clearInterval(statusTimer))
 
     <div class="status-pill" :class="app.state.connection">
       <span class="status-dot"></span>
-      {{ app.state.updateRequired ? '有功能需要更新工具' : app.state.connection === 'connected' ? '工具已连接' : '正在连接' }}
+      {{ app.state.updateRequired ? '有功能需要更新工具' : app.state.connection === 'connected' ? '工具已连接' : app.state.connection === 'disconnected' ? '工具未连接' : '正在连接' }}
     </div>
     <div class="toasts">
       <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>

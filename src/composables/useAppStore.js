@@ -5,6 +5,7 @@ const state = reactive({
   view: 'launcher', games: [], catalog: [], gameId: '', launcher: null, distributionId: '',
   accounts: [], manualChannels: {}, defaultUuid: '', autoClose: false,
   connection: 'checking', updateRequired: false, notices: [], busy: '',
+  nativeCapabilities: null,
 })
 
 function notify(message, tone = 'info') {
@@ -23,7 +24,15 @@ export function cmpGameId(a = '', b = '') {
 export function normalizeGames(data = {}) {
   const records = Array.isArray(data.games) ? data.games : []
   const catalog = Array.isArray(data.catalog) ? data.catalog : []
-  const merged = [...records]
+  const catalogAll = Array.isArray(data.catalog_all) ? data.catalog_all : catalog
+  const merged = records.map(record => {
+    const remote = catalogAll.find(item => cmpGameId(item.game_id, record.game_id)) || {}
+    return {
+      ...remote,
+      ...record,
+      launcher: { ...(remote.launcher || {}), ...(record.launcher || {}) },
+    }
+  })
   for (const item of catalog) if (!merged.some(existing => cmpGameId(existing.game_id, item.game_id))) merged.push(item)
   return { records, catalog, merged }
 }
@@ -57,6 +66,20 @@ async function loadGames() {
     state.connection = 'disconnected'
     throw error
   }
+}
+
+async function loadNativeCapabilities() {
+  try {
+    state.nativeCapabilities = await request('/native/capabilities')
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      state.updateRequired = true
+      state.nativeCapabilities = null
+      return null
+    }
+    throw error
+  }
+  return state.nativeCapabilities
 }
 
 async function selectGame(gameId) {
@@ -121,7 +144,7 @@ export function useAppStore() {
   return {
     state: readonly(state),
     currentGame: computed(() => state.games.find(item => cmpGameId(item.game_id, state.gameId)) || null),
-    notify, guarded, loadGames, loadLauncher, loadAccounts, refreshCurrent, selectGame, mutate,
+    notify, guarded, loadGames, loadNativeCapabilities, loadLauncher, loadAccounts, refreshCurrent, selectGame, mutate,
     setView: view => { state.view = view },
     setDistribution: id => { state.distributionId = String(id ?? '') },
     setAutoClose: value => { state.autoClose = Boolean(value) },

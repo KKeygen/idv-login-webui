@@ -26,10 +26,11 @@ export async function request(path, { query, body, method = body ? 'POST' : 'GET
   return payload
 }
 
-export async function pollTask(path, taskId, { interval = 750, timeout = 10 * 60_000 } = {}) {
+export async function pollTask(path, taskId, { interval = 750, timeout = 24 * 60 * 60_000, onUpdate } = {}) {
   const started = Date.now()
   while (Date.now() - started < timeout) {
     const result = await request(path, { query: { task_id: taskId } })
+    if (onUpdate) onUpdate(result)
     if (result.status !== 'pending') return result
     await new Promise(resolve => setTimeout(resolve, interval))
   }
