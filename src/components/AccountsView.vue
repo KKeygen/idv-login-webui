@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
+import { computed, onBeforeUnmount, onDeactivated, ref } from 'vue'
+import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { useAppStore } from '../composables/useAppStore'
+import { showConfirm, showPrompt } from '../dialogService'
 import ModalShell from './ModalShell.vue'
 
 const app = useAppStore()
@@ -27,11 +28,24 @@ async function login(uuid) {
   result = await resolveTask(result, '/switch-status')
   if (result.result === false || result.success === false) throw new Error(result.error || '账号登录失败，请检查工具日志')
   app.notify('账号登录完成', 'success')
-  await app.loadAccounts()
+  await app.loadAccounts({ force: true })
 }
-async function rename(account) { const name = prompt('新的账号名称', account.name || ''); if (name !== null) await app.mutate('rename', '/rename', { query: { uuid: account.uuid, new_name: name } }) }
-async function remove(uuid) { if (confirm('确定删除该账号记录？')) await app.mutate('delete', '/del', { query: { uuid } }) }
-async function removeSelected() { if (!selected.value.size || !confirm(`删除选中的 ${selected.value.size} 个账号？`)) return; for (const uuid of selected.value) await request('/del', { query: { uuid } }); selected.value = new Set(); await app.loadAccounts() }
+async function rename(account) {
+  const name = await showPrompt('输入这个账号的新名称。', { title: '重命名账号', inputLabel: '账号名称', defaultValue: account.name || '', confirmText: '保存' })
+  if (name !== null) await app.mutate('rename', '/rename', { query: { uuid: account.uuid, new_name: name } })
+}
+async function remove(uuid) {
+  const confirmed = await showConfirm('删除后需要重新导入才能再次使用该账号。', { title: '删除账号记录', confirmText: '删除', danger: true })
+  if (confirmed) await app.mutate('delete', '/del', { query: { uuid } })
+}
+async function removeSelected() {
+  if (!selected.value.size) return
+  const confirmed = await showConfirm(`将删除选中的 ${selected.value.size} 个账号记录。`, { title: '批量删除账号', confirmText: '全部删除', danger: true })
+  if (!confirmed) return
+  for (const uuid of selected.value) await request('/del', { query: { uuid } })
+  selected.value = new Set()
+  await app.loadAccounts({ force: true })
+}
 async function setDefault(uuid) { await app.mutate('default', '/setDefault', { query: { uuid, game_id: app.state.gameId } }) }
 async function clearDefault() { await app.mutate('clear-default', '/clearDefault', { query: { game_id: app.state.gameId } }) }
 
@@ -60,28 +74,42 @@ async function importAccount(loginMethod = '') {
     stopQr(); qrOpen.value = false
     if (result.cancelled) return
     if (!result.success) throw new Error(result.error || '账号导入失败')
-    app.notify('账号导入成功', 'success'); await app.loadAccounts()
+    app.notify('账号导入成功', 'success'); await app.loadAccounts({ force: true })
   } catch (error) { stopQr(); app.notify(error.message, 'error') }
 }
 async function biliWebLogin() { stopQr(); await request('/cancel-qr').catch(() => {}); await importAccount('web') }
 function closeQr() { stopQr(); qrOpen.value = false; request('/cancel-qr').catch(() => {}) }
 onBeforeUnmount(stopQr)
+onDeactivated(stopQr)
 </script>
 
 <template>
   <section class="content-page accounts-page">
-    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div><div class="inline"><select v-model="channel"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /> 添加账号</button></div><button class="channel-help" @click="openExternal('https://www.yuque.com/keygen/kg2r5k/izpgpf4g3ecqsbf3#WD82D')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
-    <div class="default-banner"><Star :size="18" /><span>自动登录账号：<strong>{{ app.state.defaultUuid || '未设置' }}</strong></span><button v-if="app.state.defaultUuid" class="ghost compact" @click="clearDefault">清除</button></div>
-    <div class="account-toolbar"><button class="ghost" @click="toggleAll"><CheckSquare :size="17" /> {{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="danger ghost" :disabled="!selected.size" @click="removeSelected"><Trash2 :size="17" /> 删除所选</button><span>{{ accounts.length }} 个账号</span></div>
+    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://www.yuque.com/keygen/kg2r5k/izpgpf4g3ecqsbf3#WD82D')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
-    <div v-else class="account-grid">
-      <article v-for="account in accounts" :key="account.uuid" class="account-card" :class="{ selected: selected.has(account.uuid), default: app.state.defaultUuid === account.uuid }" @click="toggle(account.uuid)">
-        <div class="avatar">{{ (account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div>
-        <div class="account-copy"><h3>{{ account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code><small>上次登录：{{ formatTime(account.last_login_time) }}</small></div>
-        <Star v-if="app.state.defaultUuid === account.uuid" class="default-star" :size="17" fill="currentColor" />
-        <div class="account-actions" @click.stop><button class="primary compact" title="登录" @click="login(account.uuid)"><LogIn :size="16" /> 登录</button><button class="icon-button" title="重命名" @click="rename(account)"><Pencil :size="16" /></button><button class="icon-button" title="设为自动登录" @click="setDefault(account.uuid)"><Star :size="16" /></button><button class="icon-button danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="16" /></button></div>
+    <section v-else class="account-list">
+      <header class="account-list-toolbar">
+        <div><Star :size="17" /><span>自动登录：<strong>{{ app.state.defaultUuid || '未设置' }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" @click="clearDefault">清除</button></div>
+        <div><button class="quiet-button" @click="toggleAll"><CheckSquare :size="16" />{{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="quiet-button danger" :disabled="!selected.size" @click="removeSelected"><Trash2 :size="16" />删除所选</button><span>{{ accounts.length }} 个账号</span></div>
+      </header>
+      <div class="account-list-columns" aria-hidden="true"><span></span><span>账号</span><span>上次登录</span><span>自动登录</span><span>操作</span></div>
+      <article
+        v-for="account in accounts"
+        :key="account.uuid"
+        class="account-list-row"
+        :class="{ selected: selected.has(account.uuid), default: app.state.defaultUuid === account.uuid }"
+        role="button"
+        tabindex="0"
+        @click="toggle(account.uuid)"
+        @keydown.space.prevent="toggle(account.uuid)"
+      >
+        <span class="account-selection"><Check v-if="selected.has(account.uuid)" :size="14" /></span>
+        <div class="account-identity"><div class="avatar">{{ (account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code></div></div>
+        <time>{{ formatTime(account.last_login_time) }}</time>
+        <div><span v-if="app.state.defaultUuid === account.uuid" class="default-account-badge"><Star :size="13" fill="currentColor" />当前账号</span><button v-else class="text-button" @click.stop="setDefault(account.uuid)">设为自动登录</button></div>
+        <div class="account-actions" @click.stop><button class="quiet-button account-login" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
       </article>
-    </div>
+    </section>
 
     <ModalShell :open="qrOpen" title="扫码登录" @close="closeQr">
       <div class="qr-panel"><QrCode v-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ ({ idle:'等待开始登录…', loading:'正在获取二维码…', ready:'请使用对应客户端扫码', scanned:'扫码成功，正在校验…', verified:'校验成功，正在导入…', expired:'二维码已过期', failed:'扫码失败', retrying:'连接失败，正在重试…' })[qrData.status] || '正在处理…' }}</p><button v-if="channel === 'bilibili_sdk'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
