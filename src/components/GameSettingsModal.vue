@@ -73,7 +73,7 @@ async function load() {
     if (close.status === 'fulfilled' && close.value && 'state' in close.value) form.autoClose = Boolean(close.value.state)
     if (delay.status === 'fulfilled' && delay.value && 'delay' in delay.value) form.loginDelay = Number(delay.value.delay) || 0
     if (bridge.status === 'fulfilled' && bridge.value) {
-      form.feverForceSupported = 'forced' in bridge.value
+      form.feverForceSupported = Boolean(bridge.value.configurable)
       form.feverForced = Boolean(bridge.value.forced)
     }
   } finally { loading.value = false }
