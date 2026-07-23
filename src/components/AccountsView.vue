@@ -15,6 +15,10 @@ const qrData = ref({ status: 'loading', qrcode_base64: '' })
 let qrTimer = null
 
 const accounts = computed(() => app.state.accounts.filter(item => !String(item.uuid || '').startsWith('netease')))
+const defaultAccountLabel = computed(() => {
+  const account = accounts.value.find(item => item.uuid === app.state.defaultUuid)
+  return account?.name || account?.uuid || '未设置'
+})
 const channels = computed(() => {
   const data = app.state.manualChannels
   if (Array.isArray(data)) return data.map(item => { const key = item.channel || item.app_channel; return { ...item, channel: key, name: item.name || channelNames[key] || key } }).filter(item => item.channel)
@@ -48,6 +52,7 @@ async function removeSelected() {
 }
 async function setDefault(uuid) { await app.mutate('default', '/setDefault', { query: { uuid, game_id: app.state.gameId } }) }
 async function clearDefault() { await app.mutate('clear-default', '/clearDefault', { query: { game_id: app.state.gameId } }) }
+async function toggleDefault(uuid) { app.state.defaultUuid === uuid ? await clearDefault() : await setDefault(uuid) }
 
 function stopQr() { if (qrTimer) clearInterval(qrTimer); qrTimer = null }
 async function pollQr(target) {
@@ -89,7 +94,7 @@ onDeactivated(stopQr)
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
     <section v-else class="account-list">
       <header class="account-list-toolbar">
-        <div><Star :size="17" /><span>自动登录：<strong>{{ app.state.defaultUuid || '未设置' }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" @click="clearDefault">清除</button></div>
+        <div><Star :size="17" /><span>自动登录：<strong>{{ defaultAccountLabel }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" @click="clearDefault">关闭</button></div>
         <div><button class="quiet-button" @click="toggleAll"><CheckSquare :size="16" />{{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="quiet-button danger" :disabled="!selected.size" @click="removeSelected"><Trash2 :size="16" />删除所选</button><span>{{ accounts.length }} 个账号</span></div>
       </header>
       <div class="account-list-columns" aria-hidden="true"><span></span><span>账号</span><span>上次登录</span><span>自动登录</span><span>操作</span></div>
@@ -106,7 +111,7 @@ onDeactivated(stopQr)
         <span class="account-selection"><Check v-if="selected.has(account.uuid)" :size="14" /></span>
         <div class="account-identity"><div class="avatar">{{ (account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code></div></div>
         <time>{{ formatTime(account.last_login_time) }}</time>
-        <div><span v-if="app.state.defaultUuid === account.uuid" class="default-account-badge"><Star :size="13" fill="currentColor" />当前账号</span><button v-else class="text-button" @click.stop="setDefault(account.uuid)">设为自动登录</button></div>
+        <div><button class="account-auto-login-toggle" :class="{ active: app.state.defaultUuid === account.uuid }" role="switch" :aria-checked="app.state.defaultUuid === account.uuid" :title="app.state.defaultUuid === account.uuid ? '关闭此账号的自动登录' : '将此账号设为自动登录'" @click.stop="toggleDefault(account.uuid)"><span class="account-auto-login-track" aria-hidden="true"></span><span>{{ app.state.defaultUuid === account.uuid ? '开启' : '关闭' }}</span></button></div>
         <div class="account-actions" @click.stop><button class="quiet-button account-login" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
       </article>
     </section>

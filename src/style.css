@@ -1133,6 +1133,55 @@ button.primary,
   color: #f0c4ae;
   font-size: 11px;
 }
+.account-auto-login-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: none;
+}
+.account-auto-login-track {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex: 0 0 34px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 99px;
+  background: rgba(255,255,255,.1);
+  transition: background .16s ease, border-color .16s ease;
+}
+.account-auto-login-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.76);
+  transition: transform .16s ease, background .16s ease;
+}
+.account-auto-login-toggle:hover { color: #fff; }
+.account-auto-login-toggle:hover .account-auto-login-track { border-color: rgba(255,255,255,.4); }
+.account-auto-login-toggle.active { color: #f0c4ae; }
+.account-auto-login-toggle.active .account-auto-login-track {
+  border-color: rgba(227,178,154,.48);
+  background: rgba(227,178,154,.42);
+}
+.account-auto-login-toggle.active .account-auto-login-track::after {
+  transform: translateX(15px);
+  background: #f7d1bd;
+}
+.account-auto-login-toggle:focus-visible {
+  outline: 2px solid rgba(255,255,255,.55);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
 .account-actions {
   grid-column: auto;
   display: flex;
