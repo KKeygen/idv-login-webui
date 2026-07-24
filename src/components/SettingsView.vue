@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { FileText, Network, Settings2, Wrench } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
+import { showConfirm } from '../dialogService'
 import HelpTip from './HelpTip.vue'
 
 const app = useAppStore()
@@ -10,7 +11,7 @@ const activeSection = ref('general')
 const sections = [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
   { id: 'network', label: '网络', description: '代理与游戏网络接管方式', icon: Network },
-  { id: 'diagnostics', label: '诊断', description: '日志导出与数据刷新', icon: Wrench },
+  { id: 'diagnostics', label: '诊断', description: '实时输出、日志导出与状态重置', icon: Wrench },
 ]
 const currentSection = computed(() => sections.find(item => item.id === activeSection.value) || sections[0])
 const form = reactive({
@@ -21,6 +22,12 @@ const form = reactive({
   proxyMode: 'global',
   newsVisible: localStorage.getItem('idv.news.visible') !== 'false',
 })
+const terminalOutput = ref('')
+const terminalCursor = ref(0)
+const terminalSupported = ref(true)
+const terminalBox = ref(null)
+const resetting = ref(false)
+let terminalTimer = null
 
 async function optional(path, options, unsupportedKey) {
   try { return await request(path, options) }
@@ -65,11 +72,67 @@ async function exportLogs() {
   const data = await request('/export-logs')
   app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success')
 }
+function stopTerminal() {
+  if (terminalTimer) clearTimeout(terminalTimer)
+  terminalTimer = null
+}
+async function pollTerminal() {
+  if (activeSection.value !== 'diagnostics' || !terminalSupported.value) return
+  const element = terminalBox.value
+  const pinnedToBottom = !element || element.scrollHeight - element.scrollTop - element.clientHeight < 48
+  try {
+    const data = await request('/diagnostics/terminal', { query: { cursor: terminalCursor.value } })
+    terminalOutput.value = data.reset
+      ? String(data.output || '')
+      : terminalOutput.value + String(data.output || '')
+    terminalCursor.value = Number(data.cursor || 0)
+    if (pinnedToBottom) {
+      await nextTick()
+      if (terminalBox.value) terminalBox.value.scrollTop = terminalBox.value.scrollHeight
+    }
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      terminalSupported.value = false
+      app.markUpdateRequired()
+    }
+  } finally {
+    if (activeSection.value === 'diagnostics' && terminalSupported.value) {
+      terminalTimer = setTimeout(pollTerminal, 750)
+    }
+  }
+}
+function startTerminal() {
+  stopTerminal()
+  if (terminalSupported.value) pollTerminal()
+}
+function clearTerminalView() {
+  terminalOutput.value = ''
+}
+async function resetToolState() {
+  const confirmed = await showConfirm(
+    '这会删除 config.json，并清除游戏路径、启动偏好等全部工具设置。工具随后会立即重启，并重新检查和应用热更新。\n\n此操作无法撤销。',
+    { title: '重置工具状态', confirmText: '删除并重启', danger: true },
+  )
+  if (!confirmed) return
+  resetting.value = true
+  try {
+    await request('/diagnostics/reset-state', { method: 'POST', body: { confirmed: true } })
+    app.notify('工具状态已清除，正在重启', 'warning')
+  } catch (error) {
+    resetting.value = false
+    app.notify(error?.message || '重置工具状态失败', 'error')
+  }
+}
 function setNews() {
   localStorage.setItem('idv.news.visible', String(form.newsVisible))
   app.notify('新闻显示设置已保存', 'success')
 }
 onMounted(load)
+watch(activeSection, section => {
+  if (section === 'diagnostics') startTerminal()
+  else stopTerminal()
+})
+onBeforeUnmount(stopTerminal)
 </script>
 
 <template>
@@ -98,10 +161,32 @@ onMounted(load)
           <label class="field"><span class="field-label-with-help">网络接管方式 <HelpTip text="全局代理使用系统代理接管相关请求；仅游戏进程将影响限制在游戏及登录组件；兼容模式使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。修改后需重启工具才能完整生效。" /></span><select v-model="form.proxyMode"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
           <button class="primary wide" @click="setProxy">保存代理模式</button>
         </article>
-        <article v-else class="settings-card glass">
-          <header><FileText :size="20" /><div><h2>诊断</h2><p>导出运行状态和日志，方便排查问题。</p></div></header>
-          <button class="ghost wide" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
-          <button class="ghost wide" @click="app.loadGames().then(() => app.refreshCurrent({ all: true, force: true }))">刷新全部数据</button>
+        <article v-else class="settings-card diagnostics-panel">
+          <header><FileText :size="20" /><div><h2>诊断工具</h2><p>查看实时输出或导出完整日志，方便定位运行问题。</p></div></header>
+          <div class="diagnostics-actions">
+            <button class="quiet-button" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
+            <button class="quiet-button" @click="app.loadGames().then(() => app.refreshCurrent({ all: true, force: true }))">刷新全部数据</button>
+          </div>
+
+          <section class="diagnostics-terminal" aria-label="工具实时输出">
+            <header>
+              <span><Terminal :size="16" />工具实时输出</span>
+              <span v-if="terminalSupported" class="terminal-live"><i />实时</span>
+              <span v-else class="terminal-unavailable">需要更新工具</span>
+              <button class="text-button" type="button" @click="clearTerminalView">清空显示</button>
+            </header>
+            <pre ref="terminalBox" aria-live="polite">{{ terminalSupported ? (terminalOutput || '等待工具输出…') : '当前工具版本不支持实时输出。' }}</pre>
+          </section>
+
+          <section class="diagnostics-reset-row">
+            <div>
+              <strong>重置工具状态</strong>
+              <small>删除 config.json，清除游戏路径等全部设置并重启；重启后会重新检查和应用热更新。</small>
+            </div>
+            <button class="quiet-button danger" :disabled="resetting" @click="resetToolState">
+              <RotateCcw :size="16" />{{ resetting ? '正在重启…' : '重置工具状态' }}
+            </button>
+          </section>
         </article>
       </section>
     </div>
