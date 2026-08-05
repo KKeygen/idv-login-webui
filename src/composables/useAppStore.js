@@ -1,7 +1,7 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, request, resolveTask } from '../api'
 import { gameRailTabKey, mergeGameRailTabs, readGameRailState, rememberedGameRailTab, writeGameRailState } from '../gameRailStorage'
-import { cacheCatalog, cacheLauncherVisual, readCatalogCache, readLauncherVisual } from '../launcherCache'
+import { cacheCatalog, cacheLauncherVisual, preloadLauncherImages, readCatalogCache, readLauncherVisual } from '../launcherCache'
 
 const APP_VIEWS = new Set(['launcher', 'accounts', 'settings', 'cloud'])
 const persistedRail = readGameRailState()
@@ -124,6 +124,7 @@ function requestLauncher(gameId, { force = false } = {}) {
       if (data?.success !== false && data?.installation_model_version === 1 && data.game && Array.isArray(data.distributions)) {
         rememberRailLauncher(data)
         cacheLauncherVisual(data)
+        preloadLauncherImages(data)
       }
       return data
     })
@@ -144,6 +145,7 @@ function hydrateVisualCache() {
     const normalized = normalizeGames({ games: [], ...cached })
     state.games = normalized.merged
     state.catalog = normalized.catalog
+    preloadLauncherImages(state.games, { limit: 8 })
     const queryId = typeof location === 'undefined' ? '' : new URLSearchParams(location.search).get('game_id') || ''
     const remembered = state.railTabs.find(tab => tab.key === state.lastRailTabKey)
     state.gameId = queryId || remembered?.game_id || normalized.merged[0]?.game_id || ''
@@ -154,6 +156,7 @@ function hydrateVisualCache() {
   if (state.gameId) {
     const current = state.games.find(item => cmpGameId(item.game_id, state.gameId))
     state.launcherVisual = readLauncherVisual(state.gameId) || current?.launcher || null
+    preloadLauncherImages(state.launcherVisual)
   }
 }
 
@@ -183,6 +186,7 @@ async function loadGames() {
       const normalized = normalizeGames(data)
       state.games = normalized.merged
       state.catalog = normalized.catalog
+      preloadLauncherImages(state.games, { limit: 8 })
       pruneUninstalledRailGames()
       cacheCatalog(data)
       const queryId = new URLSearchParams(location.search).get('game_id') || ''
@@ -228,7 +232,7 @@ async function selectGame(gameId, { distributionId = '', view = state.view } = {
   if (cachedAccounts) applyAccountData(cachedAccounts)
   else applyAccountData()
   const url = new URL(location.href)
-  if (gameId) url.searchParams.set('game_id', gameId)
+  url.searchParams.set('game_id', gameId)
   history.replaceState({}, '', url)
   return ensureViewData(state.view)
 }
@@ -363,6 +367,5 @@ export function useAppStore() {
     },
     setAutoClose: value => { state.autoClose = Boolean(value) },
     markUpdateRequired: () => { state.updateRequired = true },
-    setLauncher: launcher => { state.launcher = launcher },
   }
 }

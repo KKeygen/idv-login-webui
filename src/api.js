@@ -1,4 +1,5 @@
 const API_ROOT = '/_idv-login'
+const resourceUrlCache = new Map()
 
 export class ApiError extends Error {
   constructor(message, status, payload = null) {
@@ -41,9 +42,16 @@ export async function resolveTask(result, statusPath = '/import-status') {
   return result?.status === 'pending' && result.task_id ? pollTask(statusPath, result.task_id) : result
 }
 
-export function resourceUrl(url) {
-  if (!url || window.location.protocol !== 'idvlogin:' || !/^https?:\/\//i.test(url)) return url
-  return `idvlogin://cdn/${url.replace('://', '/')}`
+export function resourceUrl(url, locationLike = globalThis.window?.location) {
+  if (!url) return url
+  const protocol = String(locationLike?.protocol || '')
+  const cacheKey = `${protocol}|${url}`
+  if (resourceUrlCache.has(cacheKey)) return resourceUrlCache.get(cacheKey)
+  const resolved = protocol === 'idvlogin:' && /^https?:\/\//i.test(url)
+    ? `idvlogin://cdn/${url.replace('://', '/')}`
+    : url
+  resourceUrlCache.set(cacheKey, resolved)
+  return resolved
 }
 
 export function openExternal(url) {

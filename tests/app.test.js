@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { cmpGameId, initialViewFromSearch, normalizeGames } from '../src/composables/useAppStore'
 import { gameRailTabKey, mergeGameRailTabs, readGameRailState, rememberedGameRailTab, writeGameRailState } from '../src/gameRailStorage'
-import { cacheCatalog, cacheLauncherVisual, readCatalogCache, readLauncherVisual, warmLauncherImages } from '../src/launcherCache'
+import { cacheCatalog, cacheLauncherVisual, preloadLauncherImages, readCatalogCache, readLauncherVisual } from '../src/launcherCache'
 import { resourceUrl } from '../src/api'
 import GameRail from '../src/components/GameRail.vue'
 
@@ -79,14 +79,17 @@ describe('localhost launcher visual cache', () => {
     expect(JSON.stringify(readLauncherVisual('h55', { storage: target, location }))).not.toContain('secret')
   })
 
-  it('warms likely image resources only on localhost', () => {
-    const requests = []
-    const count = warmLauncherImages({ logo: 'https://cdn.example/logo.webp', link: 'https://example.com/news' }, {
-      location: { hostname: 'localhost' },
-      fetcher: (url, options) => { requests.push([url, options]); return Promise.resolve() },
-    })
-    expect(count).toBe(1)
-    expect(requests[0][1].cache).toBe('force-cache')
+  it('retains stable launcher images and does not decode the same URL twice', () => {
+    const created = []
+    class FakeImage {
+      set src(value) { this.value = value; created.push(value) }
+      decode() { return Promise.resolve() }
+    }
+    const data = { background_image: 'https://cdn.example/run-stable-hero.webp' }
+    expect(preloadLauncherImages(data, { ImageCtor: FakeImage, location: { protocol: 'idvlogin:' } })).toBe(1)
+    expect(preloadLauncherImages(data, { ImageCtor: FakeImage, location: { protocol: 'idvlogin:' } })).toBe(0)
+    expect(preloadLauncherImages({ icon: 'https://cdn.example/not-loaded.webp' }, { ImageCtor: FakeImage, location: { protocol: 'idvlogin:' }, limit: 0 })).toBe(0)
+    expect(created).toEqual(['idvlogin://cdn/https/cdn.example/run-stable-hero.webp'])
   })
 })
 

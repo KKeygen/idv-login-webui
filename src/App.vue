@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Home, Users, Settings, Cloud, WifiOff, CircleHelp } from '@lucide/vue'
 import { openExternal, request, resourceUrl } from './api'
+import { installMotionSystem } from './motion'
 import { cmpGameId, useAppStore } from './composables/useAppStore'
 import GameRail from './components/GameRail.vue'
 import LauncherView from './components/LauncherView.vue'
@@ -14,7 +15,7 @@ const app = useAppStore()
 const gameRailOpen = ref(false)
 const gameCatalogOpen = ref(false)
 const viewComponents = { launcher: LauncherView, accounts: AccountsView, settings: SettingsView, cloud: CloudSyncView }
-const activeViewComponent = computed(() => viewComponents[app.state.view] || LauncherView)
+const activeViewComponent = computed(() => viewComponents[app.state.view])
 const activeRailLauncher = computed(() => app.state.railLaunchers.find(item => cmpGameId(item.game_id, app.state.gameId)) || null)
 const activeDistribution = computed(() => activeRailLauncher.value?.distributions?.find(
   item => String(item.distribution_id) === String(app.state.distributionId)
@@ -50,6 +51,7 @@ const nav = [
 ]
 
 let statusTimer
+let motionCleanup = () => {}
 let railCloseTimer
 let dragCandidate = null
 function showGameRail() {
@@ -84,8 +86,8 @@ function continueWindowDrag(event) {
   request('/native/window-drag', { method: 'POST' }).catch(() => {})
 }
 function cancelWindowDrag(event) {
-  if (!event || dragCandidate?.pointerId === event.pointerId) dragCandidate = null
-  if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  if (dragCandidate?.pointerId === event.pointerId) dragCandidate = null
+  if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
 }
 function toggleWindowMaximize(event) {
   dragCandidate = null
@@ -102,6 +104,7 @@ async function reconnect() {
   await app.ensureViewData()
 }
 onMounted(async () => {
+  motionCleanup = installMotionSystem(document)
   try {
     await Promise.all([app.loadGames(), app.loadNativeCapabilities()])
     await app.ensureViewData()
@@ -113,7 +116,7 @@ onMounted(async () => {
     if (document.visibilityState === 'visible') app.loadGames().catch(() => {})
   }, 10_000)
 })
-onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer) })
+onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer); motionCleanup() })
 </script>
 
 <template>
@@ -128,12 +131,14 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
           <component :is="item.icon" :size="21" /><span>{{ item.label }}</span>
         </button>
       </nav>
-      <button class="nav-button settings-bottom" :class="{ active: app.state.view === 'settings' }" title="设置" @click="app.setView('settings')"><Settings :size="21" /></button>
+      <button class="nav-button settings-bottom" :class="{ active: app.state.view === 'settings' }" title="设置" @click="app.setView('settings')"><Settings class="animated-settings-icon" :size="21" /></button>
     </aside>
 
     <section class="workspace">
       <template v-if="app.state.view !== 'launcher' && activeGameBackground">
-        <img class="workspace-tab-background" :src="activeGameBackground" alt="" decoding="async" />
+        <Transition name="background-crossfade">
+          <img :key="activeGameBackground" class="workspace-tab-background" :src="activeGameBackground" alt="" decoding="async" />
+        </Transition>
         <div class="workspace-tab-background-shade"></div>
       </template>
       <div
@@ -151,20 +156,24 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
       <div v-if="app.state.connection === 'disconnected'" class="offline-panel">
         <WifiOff :size="34" /><h2>工具后端未连接</h2><p>请确认工具正在运行，然后重试。</p><div class="inline"><button class="primary" @click="reconnect">重新连接</button><button class="ghost" @click="openExternal('https://www.yuque.com/keygen/kg2r5k/xl9zosrwviyc54nu')"><CircleHelp :size="17" /> 常见问题</button></div>
       </div>
-      <Transition v-else name="page-change" mode="out-in">
-        <KeepAlive>
-          <component :is="activeViewComponent" :key="app.state.view" />
-        </KeepAlive>
-      </Transition>
+      <div v-else class="view-host">
+        <Transition name="page-change" mode="out-in">
+          <KeepAlive>
+            <component :is="activeViewComponent" :key="app.state.view" />
+          </KeepAlive>
+        </Transition>
+      </div>
     </section>
 
-    <div v-if="app.state.connection !== 'connected' || app.state.updateRequired" class="status-pill" :class="app.state.connection">
-      <span class="status-dot"></span>
-      {{ app.state.updateRequired ? '有功能需要更新工具' : app.state.connection === 'connected' ? '工具已连接' : app.state.connection === 'disconnected' ? '工具未连接' : '正在连接' }}
-    </div>
-    <div class="toasts">
+    <Transition name="status-fade">
+      <div v-if="app.state.connection !== 'connected' || app.state.updateRequired" class="status-pill" :class="app.state.connection">
+        <span class="status-dot"></span>
+        {{ app.state.updateRequired ? '有功能需要更新工具' : app.state.connection === 'connected' ? '工具已连接' : app.state.connection === 'disconnected' ? '工具未连接' : '正在连接' }}
+      </div>
+    </Transition>
+    <TransitionGroup name="toast-list" tag="div" class="toasts">
       <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>
-    </div>
+    </TransitionGroup>
     <AppDialogHost />
   </main>
 </template>

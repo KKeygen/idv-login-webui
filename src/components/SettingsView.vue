@@ -1,10 +1,11 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
 import { showConfirm } from '../dialogService'
 import HelpTip from './HelpTip.vue'
+import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
 const activeSection = ref('general')
@@ -13,7 +14,7 @@ const sections = [
   { id: 'network', label: '网络', description: '代理与游戏网络接管方式', icon: Network },
   { id: 'diagnostics', label: '诊断', description: '实时输出、日志导出与状态重置', icon: Wrench },
 ]
-const currentSection = computed(() => sections.find(item => item.id === activeSection.value) || sections[0])
+const currentSection = computed(() => sections.find(item => item.id === activeSection.value))
 const form = reactive({
   scanRecord: true,
   scanSupported: true,
@@ -27,7 +28,10 @@ const terminalCursor = ref(0)
 const terminalSupported = ref(true)
 const terminalBox = ref(null)
 const resetting = ref(false)
+const loading = ref(true)
 let terminalTimer = null
+let terminalGeneration = 0
+let viewActive = true
 
 async function optional(path, options, unsupportedKey) {
   try { return await request(path, options) }
@@ -41,14 +45,19 @@ async function optional(path, options, unsupportedKey) {
   }
 }
 async function load() {
-  const [scan, native, proxy] = await Promise.allSettled([
-    optional('/scan-record-setting', {}, 'scanSupported'),
-    optional('/native-save-setting', {}, 'nativeSupported'),
-    request('/proxy-mode'),
-  ])
-  if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
-  if (native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
-  if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+  loading.value = true
+  try {
+    const [scan, native, proxy] = await Promise.allSettled([
+      optional('/scan-record-setting', {}, 'scanSupported'),
+      optional('/native-save-setting', {}, 'nativeSupported'),
+      request('/proxy-mode'),
+    ])
+    if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
+    if (native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
+    if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+  } finally {
+    loading.value = false
+  }
 }
 async function toggleScan() {
   const data = await request('/scan-record-setting', { method: 'POST', body: { enabled: !form.scanRecord } })
@@ -73,37 +82,52 @@ async function exportLogs() {
   app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success')
 }
 function stopTerminal() {
+  terminalGeneration += 1
   if (terminalTimer) clearTimeout(terminalTimer)
   terminalTimer = null
 }
-async function pollTerminal() {
-  if (activeSection.value !== 'diagnostics' || !terminalSupported.value) return
+async function pollTerminal(generation) {
+  if (
+    generation !== terminalGeneration
+    || !viewActive
+    || activeSection.value !== 'diagnostics'
+    || !terminalSupported.value
+  ) return
   const element = terminalBox.value
   const pinnedToBottom = !element || element.scrollHeight - element.scrollTop - element.clientHeight < 48
   try {
     const data = await request('/diagnostics/terminal', { query: { cursor: terminalCursor.value } })
+    if (generation !== terminalGeneration || !viewActive || activeSection.value !== 'diagnostics') return
     terminalOutput.value = data.reset
       ? String(data.output || '')
       : terminalOutput.value + String(data.output || '')
     terminalCursor.value = Number(data.cursor || 0)
     if (pinnedToBottom) {
       await nextTick()
-      if (terminalBox.value) terminalBox.value.scrollTop = terminalBox.value.scrollHeight
+      if (generation === terminalGeneration && terminalBox.value) {
+        terminalBox.value.scrollTop = terminalBox.value.scrollHeight
+      }
     }
   } catch (error) {
+    if (generation !== terminalGeneration) return
     if (error instanceof ApiError && error.status === 404) {
       terminalSupported.value = false
       app.markUpdateRequired()
     }
   } finally {
-    if (activeSection.value === 'diagnostics' && terminalSupported.value) {
-      terminalTimer = setTimeout(pollTerminal, 750)
+    if (
+      generation === terminalGeneration
+      && viewActive
+      && activeSection.value === 'diagnostics'
+      && terminalSupported.value
+    ) {
+      terminalTimer = setTimeout(() => pollTerminal(generation), 750)
     }
   }
 }
 function startTerminal() {
   stopTerminal()
-  if (terminalSupported.value) pollTerminal()
+  if (viewActive && terminalSupported.value) pollTerminal(terminalGeneration)
 }
 function clearTerminalView() {
   terminalOutput.value = ''
@@ -128,11 +152,19 @@ function setNews() {
   app.notify('新闻显示设置已保存', 'success')
 }
 onMounted(load)
+onActivated(() => {
+  viewActive = true
+  if (activeSection.value === 'diagnostics') startTerminal()
+})
+onDeactivated(() => {
+  viewActive = false
+  stopTerminal()
+})
 watch(activeSection, section => {
   if (section === 'diagnostics') startTerminal()
   else stopTerminal()
 })
-onBeforeUnmount(stopTerminal)
+onBeforeUnmount(() => { viewActive = false; stopTerminal() })
 </script>
 
 <template>
@@ -149,8 +181,11 @@ onBeforeUnmount(stopTerminal)
       </aside>
 
       <section class="settings-content">
-        <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
-        <article v-if="activeSection === 'general'" class="settings-card glass">
+        <Transition name="section-change" mode="out-in">
+          <div :key="activeSection" class="settings-section-host">
+            <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
+            <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
+            <article v-else-if="activeSection === 'general'" class="settings-card glass">
           <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div></header>
           <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" @change="toggleScan" /></label>
           <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord" @change="toggleNative" /></label>
@@ -184,10 +219,12 @@ onBeforeUnmount(stopTerminal)
               <small>删除 config.json，清除游戏路径等全部设置并重启；重启后会重新检查和应用热更新。</small>
             </div>
             <button class="quiet-button danger" :disabled="resetting" @click="resetToolState">
-              <RotateCcw :size="16" />{{ resetting ? '正在重启…' : '重置工具状态' }}
+              <MotionProgressRing v-if="resetting" :size="16" aria-label="正在重启工具" /><RotateCcw v-else :size="16" />{{ resetting ? '正在重启…' : '重置工具状态' }}
             </button>
           </section>
-        </article>
+            </article>
+          </div>
+        </Transition>
       </section>
     </div>
   </section>

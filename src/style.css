@@ -71,9 +71,12 @@ input, select { width: 100%; min-height: 42px; color: #f1f2f4; background: #1115
 }
 
 button {
-  -webkit-backdrop-filter: blur(18px) saturate(155%);
-  backdrop-filter: blur(18px) saturate(155%);
-  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, color .18s ease, opacity .18s ease, transform .18s ease;
+  transition:
+    background-color var(--motion-fast, .14s) var(--motion-ease, ease),
+    border-color var(--motion-fast, .14s) var(--motion-ease, ease),
+    color var(--motion-fast, .14s) var(--motion-ease, ease),
+    opacity var(--motion-fast, .14s) var(--motion-ease, ease),
+    transform var(--motion-fast, .14s) var(--motion-ease, ease);
 }
 
 .sidebar,
@@ -1378,28 +1381,1360 @@ button.primary,
 .wizard-explanation p { margin: 0; }
 .wizard-step .field > small { color: var(--muted); line-height: 1.55; text-align: left; }
 
-/* WinUI-like navigation: content moves only a few pixels and settles quickly;
-   game artwork gets the slightly longer image reveal used by Starward. */
-.page-change-enter-active {
-  transition: opacity .18s cubic-bezier(.1,.9,.2,1), transform .18s cubic-bezier(.1,.9,.2,1);
+/* Performance and motion pass: keep acrylic on a few large surfaces only,
+   then use one compact timing/radius system for every interactive control. */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 170ms;
+  --motion-slow: 220ms;
+  --motion-ease: cubic-bezier(.2,.8,.2,1);
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --surface-control: rgba(255,255,255,.07);
+  --surface-control-hover: rgba(255,255,255,.11);
+  --surface-floating: rgba(18,22,30,.96);
 }
-.page-change-leave-active { transition: opacity .09s ease-out; }
-.page-change-enter-from { opacity: 0; transform: translateY(10px); }
-.page-change-leave-to { opacity: 0; }
-.launcher-view { animation: game-scene-in .3s cubic-bezier(.1,.9,.2,1) both; }
-.launcher-hero-image { animation: game-image-in .3s ease-out both; }
-@keyframes game-scene-in {
-  from { opacity: 0; transform: scale(1.006); }
-  to { opacity: 1; transform: scale(1); }
+
+.shell,
+.workspace,
+.launcher-view { contain: layout paint; }
+
+/* A single blurred background is enough.  The shade is now a regular colour
+   layer instead of asking the compositor to blur the same pixels twice. */
+.workspace-tab-background {
+  inset: -26px;
+  width: calc(100% + 52px);
+  height: calc(100% + 52px);
+  filter: blur(18px) saturate(.88) brightness(.56);
+  transform: scale(1.03);
 }
-@keyframes game-image-in {
-  from { opacity: 0; transform: scale(1.012); }
-  to { opacity: 1; transform: scale(1); }
+.workspace-tab-background-shade {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.sidebar {
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  backdrop-filter: blur(16px) saturate(120%);
+}
+
+/* Controls and nested panels stay flat.  Applying backdrop-filter to every
+   button created a compositor surface for the whole navigation tree. */
+button,
+.sidebar-current-game,
+.nav-button,
+.game-tab,
+.game-tab:hover,
+.add-game-tab .game-tab-icon,
+.icon-button,
+.pin-button,
+.ghost,
+.quiet-button,
+.text-button,
+.news-more,
+.account-auto-login-toggle,
+.account-icon-action,
+.settings-subnav nav button,
+.game-settings-nav button,
+.cloud-actions button {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.nav-button,
+.settings-subnav nav button,
+.game-settings-nav button,
+.icon-button,
+.pin-button,
+.ghost,
+.quiet-button,
+.game-catalog-card {
+  border-radius: var(--radius-control);
+}
+.nav-button:hover,
+.nav-button.active,
+.settings-subnav nav button:hover,
+.settings-subnav nav button.active,
+.game-settings-nav button:hover,
+.game-settings-nav button.active,
+.icon-button:hover:not(:disabled),
+.pin-button:hover:not(:disabled) {
+  background: var(--surface-control-hover);
+}
+
+.game-rail {
+  transition: transform var(--motion-base) var(--motion-ease);
+  will-change: auto;
+}
+.game-tab,
+.game-tab:hover {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) var(--motion-ease);
+  transform: none;
+}
+.game-tab-tooltip,
+.help-tip-content {
+  background: var(--surface-floating);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition:
+    opacity var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+}
+
+/* Retain the visual hierarchy with one acrylic surface per region, not one
+   blur layer per child. */
+.news-card {
+  border-radius: var(--radius-panel);
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
+  backdrop-filter: blur(12px) saturate(118%);
+}
+.launcher-controls .launch-actions {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.download-flyout {
+  border-radius: var(--radius-panel);
+  background: rgba(15,18,25,.96);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transform: translateY(6px);
+  transition:
+    opacity var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--motion-ease);
+}
+.launcher-controls.download-active:hover .download-flyout,
+.launcher-controls.download-active:focus-within .download-flyout {
+  transform: translateY(0);
+}
+.account-list,
+.account-toolbar,
+.default-banner,
+.settings-card,
+.scope-list,
+.install-summary {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.account-list { background: rgba(16,20,27,.66); }
+.game-catalog-overlay {
+  background: rgba(5,8,13,.92);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.modal-backdrop {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.modal,
+.modal.game-settings-modal {
+  background: rgba(23,27,36,.98);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Navigation and artwork now share the same understated reveal.  The old
+   full-page + image scale animations ran simultaneously and repainted nearly
+   the entire launcher during every game switch. */
+.page-change-enter-active,
+.page-change-leave-active {
+  transition:
+    opacity var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--motion-ease);
+}
+.page-change-enter-from { opacity: 0; transform: translateY(4px); }
+.page-change-leave-to { opacity: 0; transform: translateY(-2px); }
+.launcher-view { animation: none; }
+.launcher-hero-image { animation: hero-image-in var(--motion-slow) ease-out both; }
+@keyframes hero-image-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-change-enter-active,
-  .page-change-leave-active { transition: none; }
-  .launcher-view,
-  .launcher-hero-image { animation: none; }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
+
+/* --------------------------------------------------------------------------
+   Starward 0.18 design-system alignment
+   Source references: App.xaml, InstallGameDialog.xaml,
+   GameLauncherSettingDialog.xaml and StartGameButton.xaml.
+   -------------------------------------------------------------------------- */
+:root {
+  font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --accent: #cbad8e;
+  --accent-ink: #201a15;
+  --panel: rgba(44,44,44,.92);
+  --panel-solid: #2c2c2c;
+  --line: rgba(255,255,255,.0837);
+  --muted: rgba(255,255,255,.62);
+  --danger: #ff99a4;
+  --motion-fast: 83ms;
+  --motion-base: 167ms;
+  --motion-slow: 250ms;
+  --motion-ease: cubic-bezier(.1,.9,.2,1);
+  --radius-control: 8px;
+  --radius-panel: 8px;
+  --sw-control-fill: rgba(255,255,255,.0605);
+  --sw-control-fill-hover: rgba(255,255,255,.0837);
+  --sw-control-fill-pressed: rgba(255,255,255,.0326);
+  --sw-control-stroke: rgba(255,255,255,.0837);
+  --sw-surface: rgba(44,44,44,.96);
+  --sw-surface-subtle: rgba(255,255,255,.035);
+  --sw-acrylic: rgba(44,44,44,.88);
+  --sw-shadow: 0 16px 42px rgba(0,0,0,.38);
+}
+
+body { font-size: 14px; }
+button { font-weight: 400; }
+button,
+input,
+select,
+textarea {
+  transition:
+    background-color var(--motion-fast) linear,
+    border-color var(--motion-fast) linear,
+    color var(--motion-fast) linear,
+    opacity var(--motion-fast) linear;
+}
+button:hover:not(:disabled),
+.primary:hover:not(:disabled) {
+  filter: none;
+  transform: none;
+}
+button:active:not(:disabled) { transform: none; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid rgba(255,255,255,.88);
+  outline-offset: 2px;
+}
+button:disabled { opacity: .38; }
+
+/* Standard WinUI controls: 36px high, 8px corners, restrained state fills. */
+button.primary:not(.large),
+button.ghost,
+button.quiet-button,
+.inline-command,
+.file-button,
+.cloud-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+button.primary:not(.large) {
+  border: 1px solid rgba(255,255,255,.08);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: none;
+  font-weight: 600;
+}
+button.primary:not(.large):hover:not(:disabled) { background: #d2b89e; }
+button.primary:not(.large):active:not(:disabled) { background: #bfa182; }
+button.ghost,
+button.quiet-button,
+.file-button,
+.cloud-actions button {
+  border: 1px solid var(--sw-control-stroke);
+  background: var(--sw-control-fill);
+  color: rgba(255,255,255,.84);
+  box-shadow: none;
+}
+button.ghost:hover:not(:disabled),
+button.quiet-button:hover:not(:disabled),
+.file-button:hover:not(:disabled),
+.cloud-actions button:hover:not(:disabled) {
+  background: var(--sw-control-fill-hover);
+}
+button.ghost:active:not(:disabled),
+button.quiet-button:active:not(:disabled),
+.file-button:active:not(:disabled),
+.cloud-actions button:active:not(:disabled) {
+  background: var(--sw-control-fill-pressed);
+}
+button.quiet-button.accent { color: var(--accent); }
+button.quiet-button.danger,
+.account-icon-action.danger { color: var(--danger) !important; }
+.compact { min-height: 32px !important; padding: 0 10px !important; }
+
+.icon-button,
+.pin-button,
+.account-icon-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex-basis: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.icon-button:hover:not(:disabled),
+.pin-button:hover:not(:disabled),
+.account-icon-action:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--sw-control-fill-hover);
+  box-shadow: none;
+}
+.text-button,
+.channel-help,
+.locate-existing,
+.news-more,
+.inline-command {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+}
+.text-button:hover:not(:disabled),
+.channel-help:hover:not(:disabled),
+.locate-existing:hover:not(:disabled),
+.news-more:hover:not(:disabled),
+.inline-command:hover:not(:disabled) {
+  background: var(--sw-control-fill-hover);
+  color: #fff;
+}
+
+input,
+select,
+textarea {
+  min-height: 36px;
+  padding: 6px 11px;
+  border: 1px solid var(--sw-control-stroke);
+  border-radius: 8px;
+  background: rgba(255,255,255,.0419);
+  color: rgba(255,255,255,.94);
+  box-shadow: none;
+}
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) { background: rgba(255,255,255,.0605); }
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(255,255,255,.22);
+  border-bottom-color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+input[type="number"] { width: 140px; }
+input[type="checkbox"] {
+  width: 40px;
+  min-width: 40px;
+  height: 20px;
+  min-height: 20px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 10px;
+  background: rgba(255,255,255,.12);
+  box-shadow: none;
+}
+input[type="checkbox"]::before {
+  width: 14px;
+  height: 14px;
+  background: rgba(255,255,255,.82);
+}
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+input[type="checkbox"]:checked::before {
+  background: #221c17;
+  transform: translateX(20px);
+}
+
+/* Surfaces stay acrylic only at window/dialog level; nested controls are flat. */
+.sidebar {
+  background: rgba(24,24,24,.84);
+  border-right-color: rgba(255,255,255,.06);
+  -webkit-backdrop-filter: blur(20px) saturate(115%);
+  backdrop-filter: blur(20px) saturate(115%);
+  box-shadow: none;
+}
+.sidebar-current-game { border-bottom-color: rgba(255,255,255,.06); }
+.sidebar-current-game img,
+.sidebar-current-game > span,
+.game-tab-icon,
+.catalog-card-placeholder img,
+.avatar { border-radius: 8px; }
+.nav-button {
+  min-height: 40px;
+  border-radius: 4px;
+  color: rgba(255,255,255,.62);
+}
+.nav-button:hover,
+.nav-button.active {
+  background: var(--sw-control-fill-hover);
+  color: #fff;
+}
+.nav-button.active::before {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.game-tab,
+.game-tab:hover {
+  border-radius: 4px;
+  box-shadow: none;
+}
+.game-tab:hover { background: rgba(44,44,44,.86); }
+.game-catalog-overlay {
+  background: rgba(24,24,24,.96);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.game-catalog-card {
+  border-radius: 8px;
+  box-shadow: none;
+}
+.game-catalog-card:hover { transform: none; border-color: rgba(255,255,255,.20); }
+.game-catalog-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.status-pill,
+.toast,
+.news-card,
+.account-list,
+.settings-card,
+.scope-list,
+.cloud-actions button,
+.diagnostics-terminal {
+  border-radius: 8px;
+}
+.toast {
+  background: var(--sw-surface);
+  border-color: var(--sw-control-stroke);
+  box-shadow: 0 8px 28px rgba(0,0,0,.32);
+}
+
+.content-page { padding: 48px clamp(24px,4vw,56px) 40px; }
+.page-title { align-items: center; margin-bottom: 24px; }
+.page-title h1 {
+  margin: 2px 0 6px;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.page-title p { font-size: 13px; }
+.eyebrow {
+  color: var(--muted) !important;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Launcher keeps Starward's one-piece 44px start capsule. */
+.launcher-controls .launch-actions {
+  border-radius: 22px;
+  background: var(--brand-button, rgba(203,173,142,.94));
+  box-shadow: 0 8px 24px rgba(0,0,0,.30);
+}
+.launch-actions .primary.large,
+.launch-actions .game-settings-button { border-radius: 22px; }
+.launch-actions .primary.large { font-weight: 400; }
+.news-card {
+  border: 0;
+  background: rgba(32,32,32,.76);
+  box-shadow: var(--sw-shadow);
+}
+.news-card a { border-top-color: rgba(255,255,255,.07); }
+.download-flyout {
+  border: 0;
+  border-radius: 8px;
+  background: var(--sw-surface);
+  box-shadow: var(--sw-shadow);
+}
+.download-progress progress { height: 4px; border-radius: 2px; }
+
+/* Account and cloud pages use flat WinUI lists, not elevated cards. */
+.account-login-capsule,
+.account-list {
+  border-radius: 8px;
+  box-shadow: none;
+}
+.account-login-capsule { min-height: 36px; }
+.account-login-capsule select,
+.account-login-capsule .primary { min-height: 36px; }
+.account-list {
+  border-color: rgba(255,255,255,.08);
+  background: rgba(32,32,32,.72);
+}
+.account-list-toolbar { min-height: 48px; padding: 0 12px; }
+.account-list-row { min-height: 58px; }
+.account-list-row:hover { background: var(--sw-control-fill-hover); }
+.account-list-row.selected { background: rgba(203,173,142,.10); }
+.account-selection { border-radius: 4px; }
+.account-auto-login-toggle { min-height: 32px; border-radius: 8px; }
+.cloud-actions button { min-height: 64px; }
+.scope-list { background: rgba(255,255,255,.025); }
+
+/* Application settings follows NavigationView spacing and typography. */
+.settings-page { padding: 24px 0 0; }
+.settings-layout {
+  width: 100%;
+  min-height: calc(100vh - 60px);
+  grid-template-columns: 220px minmax(0,1fr);
+}
+.settings-subnav {
+  padding: 12px 8px 20px;
+  border-right: 1px solid rgba(255,255,255,.06);
+}
+.settings-subnav > header { padding: 0 16px 8px; }
+.settings-subnav h1 { font-size: 20px; font-weight: 400; }
+.settings-subnav nav button {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 4px;
+  font-weight: 400;
+}
+.settings-subnav nav button.active::before { height: 16px; }
+.settings-content { padding: 24px 40px 36px; }
+.settings-section-title { margin-bottom: 24px; }
+.settings-section-title h1 { font-size: 24px; font-weight: 600; }
+.settings-card,
+.settings-card:first-child {
+  width: min(720px,100%);
+  border-radius: 0;
+  background: transparent;
+}
+.settings-card > header h2 { font-size: 16px; font-weight: 600; }
+.setting-row { min-height: 56px; border-top-color: rgba(255,255,255,.07); }
+.setting-row strong { font-weight: 400; }
+.setting-row small { font-size: 12px; }
+.field { gap: 8px; margin: 12px 0; }
+
+/* ContentDialog: 8px acrylic shell, 24px content inset, 32px close button. */
+.modal-backdrop {
+  padding: 20px;
+  background: rgba(0,0,0,.30);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.modal {
+  width: min(560px,calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  border: 0;
+  border-radius: 8px;
+  background: var(--sw-acrylic);
+  -webkit-backdrop-filter: blur(28px) saturate(120%);
+  backdrop-filter: blur(28px) saturate(120%);
+  box-shadow: var(--sw-shadow);
+}
+.modal > header {
+  min-height: 56px;
+  padding: 20px 20px 0 24px;
+  border: 0;
+}
+.modal > header h2 { font-size: 18px; font-weight: 600; }
+.modal > footer {
+  min-height: 60px;
+  padding: 0 24px 24px;
+  border: 0;
+}
+.modal-body { padding: 16px 24px 24px; }
+.modal-close-button { margin-left: auto; }
+.modal.app-dialog { width: min(460px,calc(100vw - 40px)); }
+.app-dialog-content { gap: 16px; }
+.app-dialog-message p { line-height: 1.5; }
+.qr-panel img { border-radius: 8px; }
+
+.modal-headerless > header {
+  top: 4px;
+  right: 4px;
+}
+.modal-headerless > header .icon-button,
+.modal-headerless > header .modal-close-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 8px;
+}
+
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: opacity var(--motion-base) var(--motion-ease);
+}
+.dialog-fade-enter-active .modal,
+.dialog-fade-leave-active .modal {
+  transition:
+    opacity var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--motion-ease);
+}
+.dialog-fade-enter-from,
+.dialog-fade-leave-to { opacity: 0; }
+.dialog-fade-enter-from .modal,
+.dialog-fade-leave-to .modal { opacity: 0; transform: scale(.985); }
+
+/* InstallGameDialog.xaml equivalent. */
+.modal.install-game-modal {
+  width: min(560px,calc(100vw - 40px));
+  height: auto;
+}
+.install-game-modal > .modal-body { overflow: visible; padding: 0; }
+.install-dialog-content { padding: 24px; }
+.install-dialog-heading { padding-right: 28px; }
+.install-dialog-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.install-dialog-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.install-path-field {
+  height: 36px;
+  display: grid;
+  grid-template-columns: 16px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  margin-top: 16px;
+  padding-left: 12px;
+  border-radius: 8px;
+  background: var(--sw-control-fill-hover);
+  color: var(--muted);
+}
+.install-path-field > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.install-path-field.empty > span { color: rgba(255,255,255,.48); }
+.install-path-field .inline-command {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.install-space-row {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 1px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.install-space-row span { display: inline-flex; align-items: center; gap: 5px; }
+.install-space-row strong { color: rgba(255,255,255,.82); font-weight: 400; }
+.install-space-row i { width: 1px; height: 14px; background: rgba(255,255,255,.14); }
+.install-warning,
+.install-package-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 8px 1px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.install-warning { color: #f7c76b; }
+.install-package-note { color: var(--muted); }
+.install-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* GameLauncherSettingDialog.xaml equivalent: 800x480, 200px NavigationView. */
+.modal.game-settings-modal {
+  width: min(800px,calc(100vw - 48px));
+  height: min(480px,calc(100vh - 48px));
+  border-radius: 8px;
+  background: var(--sw-acrylic);
+  -webkit-backdrop-filter: blur(28px) saturate(120%);
+  backdrop-filter: blur(28px) saturate(120%);
+}
+.game-settings-modal > .modal-body { padding: 0; }
+.game-settings-layout {
+  height: 100%;
+  grid-template-columns: 200px minmax(0,1fr);
+  padding: 24px 24px 0;
+}
+.game-settings-nav {
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.game-settings-nav > p {
+  margin: 0 16px 8px;
+  color: var(--muted);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 40px;
+}
+.game-settings-nav button {
+  position: relative;
+  min-height: 40px;
+  justify-content: flex-start;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  box-shadow: none;
+}
+.game-settings-nav button:hover,
+.game-settings-nav button.active {
+  background: var(--sw-control-fill-hover);
+  color: #fff;
+}
+.game-settings-nav button.active::before {
+  left: -4px;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.game-settings-content {
+  margin: 24px 0 0 24px;
+  padding: 0 24px 24px 0;
+}
+.game-settings-content > header { margin: 0 0 16px; }
+.game-settings-content > header h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.game-settings-content > header p { font-size: 12px; }
+.game-settings-game-header {
+  grid-template-columns: 40px minmax(0,1fr) auto;
+  gap: 20px;
+}
+.game-settings-game-icon { border-radius: 8px; }
+.game-settings-game-header h2 { font-size: 16px; font-weight: 400; }
+.game-settings-game-header p { font-size: 12px; }
+.game-settings-path-row {
+  height: 40px;
+  margin-top: 12px;
+  padding-left: 16px;
+  border-radius: 8px;
+  background: var(--sw-control-fill);
+}
+.game-settings-path-row .quiet-button {
+  height: 40px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+}
+.game-settings-actions { gap: 12px; margin-top: 12px; }
+.game-settings-actions button { min-height: 36px; }
+.game-settings-content .setting-row {
+  min-height: 48px;
+  border-top: 0;
+}
+.game-settings-content .field { margin-top: 12px; }
+.game-settings-content .field .inline { align-items: stretch; }
+.game-settings-content .field input { min-height: 36px; }
+
+@media (max-width: 760px) {
+  .content-page { padding: 48px 18px 28px; }
+  .settings-layout { grid-template-columns: 190px minmax(0,1fr); }
+  .settings-content { padding: 20px 22px 30px; }
+  .modal.game-settings-modal { width: calc(100vw - 24px); height: calc(100vh - 28px); }
+  .game-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); padding: 12px; }
+  .game-settings-nav { display: flex; padding-right: 40px; }
+  .game-settings-nav > p { display: none; }
+  .game-settings-nav button { flex: 1; justify-content: center; }
+  .game-settings-content { margin: 12px 0 0; padding: 16px 8px; }
+}
+
+/* -------------------------------------------------------------------------
+   Starward alignment pass — remove legacy glass/card rules that would leak
+   through the design-token layer above.  The project keeps its own layout and
+   branding, while control metrics and visual hierarchy follow Starward/WinUI.
+   ------------------------------------------------------------------------- */
+
+/* The game switcher is a fixed icon rail.  Starward uses stable hit targets;
+   labels belong in tooltips rather than resizing neighbouring controls. */
+.game-tab,
+.game-tab:hover,
+.game-tab:focus-visible {
+  width: 52px;
+  max-width: 52px;
+  height: 52px;
+  gap: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  opacity: .64;
+  box-shadow: none;
+  transition:
+    background-color var(--motion-fast) linear,
+    opacity var(--motion-fast) linear;
+}
+.game-tab:hover,
+.game-tab:focus-visible,
+.game-tab.active {
+  width: 52px;
+  opacity: 1;
+  background: var(--sw-control-fill-hover);
+}
+.game-tab-icon {
+  width: 46px;
+  height: 46px;
+  flex-basis: 46px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.game-tab-icon img,
+.game-tab:hover .game-tab-icon img,
+.game-tab.active .game-tab-icon img {
+  filter: none;
+  box-shadow: none;
+}
+.game-tab-label { display: none; }
+.sidebar-current-game img,
+.sidebar-current-game > span {
+  border-radius: 8px;
+  filter: none;
+  box-shadow: none;
+}
+
+/* NavigationView: a flat pane separated by one hairline. */
+.settings-page {
+  padding: 0;
+}
+.settings-layout {
+  width: 100%;
+  min-height: calc(100vh - 60px);
+  grid-template-columns: 220px minmax(0,1fr);
+  gap: 0;
+  margin: 0;
+}
+.settings-subnav,
+.settings-subnav.glass {
+  align-self: stretch;
+  overflow: visible;
+  padding: 24px 8px 20px;
+  border: 0;
+  border-right: 1px solid rgba(255,255,255,.06);
+  border-radius: 0;
+  background: rgba(24,24,24,.52);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.settings-subnav > header {
+  padding: 0 16px 8px;
+  border: 0;
+}
+.settings-subnav h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 40px;
+}
+.settings-subnav nav {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+}
+.settings-subnav nav button {
+  position: relative;
+  width: 100%;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 20px minmax(0,1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255,255,255,.62);
+  box-shadow: none;
+}
+.settings-subnav nav button:hover,
+.settings-subnav nav button.active {
+  border: 0;
+  background: var(--sw-control-fill-hover);
+  color: #fff;
+  box-shadow: none;
+}
+.settings-subnav nav button.active::before {
+  left: -4px;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+}
+.settings-subnav nav button strong { font-weight: 400; }
+.settings-content {
+  min-width: 0;
+  padding: 28px 40px 36px;
+}
+.settings-section-title {
+  margin: 0 0 24px;
+}
+.settings-section-title h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.settings-section-title p { margin: 0; font-size: 13px; }
+.settings-page .settings-card,
+.settings-page .settings-card:first-child {
+  width: min(720px,100%);
+  padding: 0 0 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.settings-page .settings-card > header {
+  margin: 0 0 12px;
+  padding: 0;
+}
+.settings-page .setting-row:first-of-type { border-top: 0; }
+.settings-page .setting-row {
+  min-height: 56px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+.settings-page .wide { width: auto; min-width: 112px; }
+
+/* Content cards on non-settings pages remain simple 8px WinUI surfaces. */
+.cloud-page .settings-card,
+.cloud-page .settings-card:first-child {
+  width: auto;
+  padding: 24px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background: rgba(32,32,32,.72);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.cloud-page .settings-card > header { margin-bottom: 16px; }
+.cloud-actions {
+  gap: 8px;
+}
+.cloud-actions button {
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--sw-control-fill);
+  box-shadow: none;
+}
+.cloud-actions button:hover:not(:disabled) { background: var(--sw-control-fill-hover); }
+.scope-list {
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,.025);
+  box-shadow: none;
+}
+
+/* Dialog internals are deliberately flat: one acrylic shell, no nested cards. */
+.modal .install-summary,
+.modal .settings-card,
+.modal .scope-list {
+  box-shadow: none;
+}
+.modal button { box-shadow: none; }
+.modal .setting-row { border-top-color: rgba(255,255,255,.07); }
+.modal .empty-state { border-radius: 8px; }
+
+@media (max-width: 760px) {
+  .settings-layout {
+    grid-template-columns: 190px minmax(0,1fr);
+  }
+  .settings-subnav,
+  .settings-subnav.glass { padding-top: 16px; }
+  .settings-content { padding: 22px 22px 30px; }
+}
+
+/* --------------------------------------------------------------------------
+   Starward motion-system alignment
+
+   The source project relies on WinUI's state transitions rather than large
+   decorative web animations: 83 ms control-state brushes, scalar opacity,
+   vector translation for the game selector, reposition transitions for lists,
+   AddDelete transitions for toasts, and ProgressRing for pending work.
+   -------------------------------------------------------------------------- */
+
+/* Pointer Reveal: a small local light follows the pointer on the active
+   control.  The document never receives a full-screen moving gradient. */
+button:not([data-reveal="off"]),
+[data-reveal]:not([data-reveal="off"]) {
+  position: relative;
+  isolation: isolate;
+}
+button:not([data-reveal="off"])::after,
+[data-reveal]:not([data-reveal="off"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle 92px at var(--reveal-x, 50%) var(--reveal-y, 50%),
+    rgba(255,255,255,.145) 0,
+    rgba(255,255,255,.065) 38%,
+    rgba(255,255,255,0) 72%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) linear;
+}
+button.primary::after,
+.launch-actions button::after {
+  background: radial-gradient(
+    circle 96px at var(--reveal-x, 50%) var(--reveal-y, 50%),
+    rgba(255,255,255,.11) 0,
+    rgba(255,255,255,.045) 42%,
+    rgba(255,255,255,0) 74%
+  );
+}
+.reveal-pointer-active::after { opacity: 1; }
+.reveal-pointer-active:active::after { opacity: .52; }
+button:disabled::after,
+[aria-disabled="true"]::after { display: none; }
+
+/* CommonStates: no jumping or scale-up. Hover and press are short brush
+   changes, matching StartGameButton's 83 ms BrushTransition. */
+.nav-button:active:not(:disabled),
+.settings-subnav nav button:active:not(:disabled),
+.game-settings-nav button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.pin-button:active:not(:disabled),
+.account-icon-action:active:not(:disabled),
+.game-tab:active:not(:disabled),
+.game-catalog-card:active:not(:disabled),
+.account-list-row:active {
+  background-color: var(--sw-control-fill-pressed);
+}
+input[type="checkbox"],
+input[type="checkbox"]::before,
+.account-auto-login-track,
+.account-auto-login-track::after {
+  transition:
+    background-color var(--motion-base) var(--motion-ease),
+    border-color var(--motion-fast) linear,
+    transform var(--motion-base) var(--motion-ease),
+    opacity var(--motion-fast) linear;
+}
+.animated-settings-icon {
+  transform-origin: center;
+  transition: transform var(--motion-base) var(--motion-ease);
+}
+button:hover .animated-settings-icon,
+button:focus-visible .animated-settings-icon { transform: rotate(45deg); }
+button:active .animated-settings-icon { transform: rotate(22deg) scale(.94); }
+
+/* Navigation: the outgoing page stays in place while the new page enters from
+   a restrained 16 px offset. Both are present during the cross-fade, avoiding
+   the blank frame produced by out-in web transitions. */
+.view-host {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.view-host > * {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.page-change-enter-active {
+  z-index: 2;
+  transition:
+    opacity var(--motion-slow) var(--motion-ease),
+    transform var(--motion-slow) var(--motion-ease);
+}
+.page-change-leave-active {
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity var(--motion-base) linear;
+}
+.page-change-enter-from {
+  opacity: 0;
+  transform: translateX(16px);
+}
+.page-change-leave-to { opacity: 0; }
+
+/* A game/server switch is equivalent to Starward's suppressed navigation: the
+   page itself stays mounted; only the artwork that actually changed fades. */
+.hero-crossfade-enter-active,
+.hero-crossfade-leave-active,
+.background-crossfade-enter-active,
+.background-crossfade-leave-active,
+.brand-crossfade-enter-active,
+.brand-crossfade-leave-active {
+  transition: opacity var(--motion-slow) var(--motion-ease);
+}
+.hero-crossfade-leave-active,
+.background-crossfade-leave-active {
+  position: absolute;
+}
+.hero-crossfade-enter-from,
+.hero-crossfade-leave-to,
+.background-crossfade-enter-from,
+.background-crossfade-leave-to,
+.brand-crossfade-enter-from,
+.brand-crossfade-leave-to { opacity: 0; }
+.launcher-hero-image { animation: none !important; }
+
+/* NavigationView sub-pages and wizard steps use a smaller connected animation
+   than full page navigation. */
+.section-change-enter-active,
+.wizard-step-enter-active {
+  transition:
+    opacity var(--motion-base) var(--motion-ease),
+    transform var(--motion-slow) var(--motion-ease);
+}
+.section-change-leave-active,
+.wizard-step-leave-active {
+  transition:
+    opacity var(--motion-fast) linear,
+    transform var(--motion-base) var(--motion-ease);
+}
+.section-change-enter-from,
+.wizard-step-enter-from { opacity: 0; transform: translateX(12px); }
+.section-change-leave-to,
+.wizard-step-leave-to { opacity: 0; transform: translateX(-6px); }
+.settings-section-host { min-height: 100%; }
+
+/* Scalar transitions: overlays, transient panels and status surfaces only
+   change opacity. They do not fly in from arbitrary directions. */
+.catalog-fade-enter-active,
+.catalog-fade-leave-active,
+.status-fade-enter-active,
+.status-fade-leave-active,
+.panel-reveal-enter-active,
+.panel-reveal-leave-active {
+  transition: opacity var(--motion-base) linear;
+}
+.catalog-fade-enter-from,
+.catalog-fade-leave-to,
+.status-fade-enter-from,
+.status-fade-leave-to,
+.panel-reveal-enter-from,
+.panel-reveal-leave-to { opacity: 0; }
+
+/* ContentDialog uses the WinUI connected-dialog feel: backdrop first, then a
+   subtle 8 px / 2% settle. No spring, bounce, or full-screen scale. */
+.dialog-fade-enter-active { transition: opacity var(--motion-base) linear; }
+.dialog-fade-leave-active { transition: opacity var(--motion-base) linear; }
+.dialog-fade-enter-active .modal {
+  transition:
+    opacity var(--motion-base) linear,
+    transform var(--motion-slow) var(--motion-ease);
+}
+.dialog-fade-leave-active .modal {
+  transition:
+    opacity var(--motion-fast) linear,
+    transform var(--motion-base) var(--motion-ease);
+}
+.dialog-fade-enter-from,
+.dialog-fade-leave-to { opacity: 0; }
+.dialog-fade-enter-from .modal { opacity: 0; transform: translateY(8px) scale(.98); }
+.dialog-fade-leave-to .modal { opacity: 0; transform: translateY(4px) scale(.99); }
+
+/* GameSelector: vector translation for the whole rail, and reposition/add-delete
+   transitions for individual game icons. */
+.game-rail {
+  transform: translateY(-100px);
+  transition: transform var(--motion-base) var(--motion-ease);
+}
+.game-rail.open { transform: translateY(0); }
+.game-rail-items {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.rail-item-move,
+.catalog-item-move,
+.list-item-move {
+  transition: transform var(--motion-slow) var(--motion-ease);
+}
+.rail-item-enter-active,
+.rail-item-leave-active,
+.catalog-item-enter-active,
+.catalog-item-leave-active,
+.list-item-enter-active,
+.list-item-leave-active {
+  transition:
+    opacity var(--motion-base) linear,
+    transform var(--motion-base) var(--motion-ease);
+}
+.rail-item-enter-from,
+.rail-item-leave-to { opacity: 0; transform: scale(.88); }
+.catalog-item-enter-from,
+.catalog-item-leave-to,
+.list-item-enter-from,
+.list-item-leave-to { opacity: 0; transform: translateY(8px); }
+.rail-item-leave-active,
+.catalog-item-leave-active,
+.list-item-leave-active { position: absolute; }
+.account-list-body { position: relative; }
+
+/* AddDeleteThemeTransition equivalent for in-app notifications. */
+.toast-list-enter-active,
+.toast-list-leave-active,
+.toast-list-move {
+  transition:
+    opacity var(--motion-base) linear,
+    transform var(--motion-slow) var(--motion-ease);
+}
+.toast-list-enter-from,
+.toast-list-leave-to { opacity: 0; transform: translateY(10px); }
+.toast-list-leave-active { position: absolute; width: 100%; }
+
+/* Native-style tooltip timing: reveal after a short hover dwell, disappear
+   immediately on exit. */
+.game-tab-tooltip,
+.help-tip-content {
+  transition-delay: 0ms;
+}
+.game-tab:hover .game-tab-tooltip,
+.game-tab:focus-visible .game-tab-tooltip,
+.help-tip:hover .help-tip-content,
+.help-tip:focus-visible .help-tip-content {
+  transition-delay: 420ms;
+}
+
+/* ProgressRing: 20 px for command work, 28-32 px for page/dialog loading, and
+   a determinate ring for installs. This replaces ad-hoc text-only spinners. */
+.sw-progress-ring {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: currentColor;
+  vertical-align: middle;
+}
+.sw-progress-ring svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+.sw-progress-ring circle {
+  fill: none;
+  stroke-width: 2.1;
+  vector-effect: non-scaling-stroke;
+}
+.sw-progress-ring-track {
+  stroke: currentColor;
+  opacity: .18;
+}
+.sw-progress-ring-indicator {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: var(--ring-progress, 0) 100;
+  transition: stroke-dasharray var(--motion-base) var(--motion-ease);
+}
+.sw-progress-ring.is-indeterminate svg {
+  animation: sw-ring-rotate 1.35s linear infinite;
+}
+.sw-progress-ring.is-indeterminate .sw-progress-ring-indicator {
+  stroke-dasharray: 1 99;
+  animation: sw-ring-dash 1.35s var(--motion-ease) infinite;
+}
+.sw-progress-ring-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+@keyframes sw-ring-rotate {
+  to { transform: rotate(270deg); }
+}
+@keyframes sw-ring-dash {
+  0% { stroke-dasharray: 1 99; stroke-dashoffset: 0; }
+  50% { stroke-dasharray: 66 34; stroke-dashoffset: -18; }
+  100% { stroke-dasharray: 1 99; stroke-dashoffset: -100; }
+}
+.inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.content-loading {
+  min-height: 180px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--muted);
+}
+.settings-loading { min-height: 280px; }
+button .sw-progress-ring { margin-right: 1px; }
+.download-percent-orb {
+  position: absolute;
+  left: 7px;
+  top: 7px;
+  z-index: 3;
+  color: var(--brand-button-text, #fff);
+}
+
+/* Keep the progress indicator and selection bar fluid, but avoid animating the
+   width/geometry of the surrounding control. */
+.wizard-progress span,
+.settings-subnav nav button.active::before,
+.game-settings-nav button.active::before,
+.nav-button.active::before {
+  transition:
+    background-color var(--motion-fast) linear,
+    opacity var(--motion-fast) linear,
+    height var(--motion-base) var(--motion-ease),
+    transform var(--motion-base) var(--motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-pointer-active::after { opacity: 0 !important; }
+  .page-change-enter-from,
+  .section-change-enter-from,
+  .wizard-step-enter-from,
+  .dialog-fade-enter-from .modal,
+  .dialog-fade-leave-to .modal,
+  .rail-item-enter-from,
+  .catalog-item-enter-from,
+  .list-item-enter-from,
+  .toast-list-enter-from { transform: none !important; }
+  .sw-progress-ring.is-indeterminate svg,
+  .sw-progress-ring.is-indeterminate .sw-progress-ring-indicator {
+    animation: none !important;
+  }
+  .sw-progress-ring.is-indeterminate .sw-progress-ring-indicator {
+    stroke-dasharray: 28 72;
+  }
+}
+
+/* The base Reveal selector includes an element/attribute selector, so the
+   active state matches its specificity explicitly. */
+button.reveal-pointer-active:not([data-reveal="off"])::after,
+[data-reveal].reveal-pointer-active:not([data-reveal="off"])::after { opacity: 1; }
+button.reveal-pointer-active:not([data-reveal="off"]):active::after,
+[data-reveal].reveal-pointer-active:not([data-reveal="off"]):active::after { opacity: .52; }
+.download-percent-orb {
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.game-rail-items,
+.game-catalog-grid { position: relative; }
+.catalog-item-leave-active,
+.list-item-leave-active { width: 100%; }

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { CircleAlert, MessageSquareText, PencilLine } from '@lucide/vue'
 import { cancelDialog, dialogState, settleDialog } from '../dialogService'
 import ModalShell from './ModalShell.vue'
@@ -31,28 +31,13 @@ function cancel() {
   cancelDialog()
 }
 
-function handleKeydown(event) {
-  if (!current.value) return
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    cancel()
-  } else if (event.key === 'Enter' && current.value.kind !== 'prompt') {
-    event.preventDefault()
-    submit()
-  }
-}
-
 function submitPrompt(event) {
   if (event.isComposing) return
   event.preventDefault()
   submit()
 }
 
-onMounted(() => document.addEventListener('keydown', handleKeydown))
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', handleKeydown)
-  cancel()
-})
+onBeforeUnmount(cancel)
 </script>
 
 <template>
@@ -68,7 +53,7 @@ onBeforeUnmount(() => {
       </label>
     </div>
     <template #footer>
-      <button v-if="current?.kind !== 'alert'" class="ghost" @click="cancel">{{ current?.cancelText }}</button>
+      <button class="ghost" @click="cancel">{{ current?.cancelText }}</button>
       <button ref="primaryButton" class="primary" :class="{ 'dialog-danger': current?.danger }" @click="submit">{{ current?.confirmText }}</button>
     </template>
   </ModalShell>

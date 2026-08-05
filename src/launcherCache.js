@@ -1,6 +1,9 @@
+import { resourceUrl } from './api.js'
+
 const CACHE_KEY = 'idv.launcher.visual-cache.v1'
 const CACHE_SCHEMA = 1
-const warmedImages = new Set()
+const retainedImages = new Map()
+const MAX_RETAINED_IMAGES = 24
 
 function isLocalFrontend(locationLike = globalThis.location) {
   const hostname = String(locationLike?.hostname || '').toLowerCase()
@@ -102,14 +105,33 @@ function collectImageUrls(value, key = '', result = new Set()) {
   return result
 }
 
-export function warmLauncherImages(data, options = {}) {
-  if (!isLocalFrontend(options.location || globalThis.location)) return 0
-  const fetcher = options.fetcher || globalThis.fetch
-  if (typeof fetcher !== 'function') return 0
-  const urls = [...collectImageUrls(data)].filter(url => !warmedImages.has(url)).slice(0, 32)
+/**
+ * Start decoding launcher artwork as soon as its metadata arrives and retain a
+ * small process-lifetime cache.  The launcher payload uses stable image URLs
+ * for one run, so this prevents a KeepAlive remount or rail/catalog switch
+ * from repeatedly allocating and decoding the same image.
+ */
+export function preloadLauncherImages(data, options = {}) {
+  const ImageCtor = options.ImageCtor || globalThis.Image
+  if (typeof ImageCtor !== 'function') return 0
+  const locationLike = options.location || globalThis.window?.location
+  const requestedLimit = options.limit ?? 12
+  const limit = Math.max(0, Number(requestedLimit) || 0)
+  const urls = [...collectImageUrls(data)]
+    .map(url => resourceUrl(url, locationLike))
+    .filter(url => url && !retainedImages.has(url))
+    .slice(0, limit)
+
   for (const url of urls) {
-    warmedImages.add(url)
-    Promise.resolve(fetcher(url, { mode: 'no-cors', cache: 'force-cache', credentials: 'omit' })).catch(() => {})
+    while (retainedImages.size >= MAX_RETAINED_IMAGES) {
+      retainedImages.delete(retainedImages.keys().next().value)
+    }
+    const image = new ImageCtor()
+    image.decoding = 'async'
+    image.onerror = () => retainedImages.delete(url)
+    retainedImages.set(url, image)
+    image.src = url
+    if (typeof image.decode === 'function') Promise.resolve(image.decode()).catch(() => {})
   }
   return urls.length
 }

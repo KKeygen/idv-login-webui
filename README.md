@@ -16,8 +16,12 @@ IdentityV Login Helper 的 Vue 3 单页前端。它把原先单个 `index.html` 
 ```bash
 npm install
 npm run dev
+npm run check:sfc
+npm run check:logic
 npm test
 npm run build
+# 或直接生成不依赖 Rollup 原生模块的单文件发行版
+npm run build:standalone
 ```
 
 构建完成后只需部署 `dist/index.html`。它不依赖外部 JavaScript、CSS 或字体文件。
@@ -32,10 +36,16 @@ Request 只执行测试，不部署。
 ```text
 src/
 ├── api.js                       # API、异步任务轮询、scheme URL 适配
+├── motion.js                    # Starward/WinUI 局部 Reveal 与指针动效
+├── modalStack.js                # 多层模态框的顶层关闭语义
+├── installRequirements.js       # 安装磁盘空间统一计算
 ├── composables/useAppStore.js   # 游戏、账号、启动器与能力状态
 ├── components/
+│   ├── MotionProgressRing.vue   # 确定/不确定 ProgressRing
 │   ├── GameRail.vue             # 游戏选择与分发顶栏
 │   ├── LauncherView.vue         # 安装、更新、启动、Fever 导入、新闻
+│   ├── InstallGameModal.vue     # Starward 风格游戏安装对话框
+│   ├── GameSettingsModal.vue    # Starward 风格游戏设置对话框
 │   ├── AccountsView.vue         # 账号 CRUD、默认账号、QR/网页登录
 │   ├── SettingsView.vue         # 自动启动/关闭、记录、代理、日志、快捷方式
 │   ├── CloudSyncView.vue        # 云同步全集和四步配置向导
@@ -43,7 +53,7 @@ src/
 └── App.vue
 ```
 
-完整迁移范围与 API 对照见 [docs/feature-coverage.md](docs/feature-coverage.md)。
+完整迁移范围与 API 对照见 [docs/feature-coverage.md](docs/feature-coverage.md)。Starward 设计规范映射见 [STARWARD_DESIGN_SYSTEM.md](STARWARD_DESIGN_SYSTEM.md)，动效范式与实现说明见 [STARWARD_MOTION_SYSTEM.md](STARWARD_MOTION_SYSTEM.md)。逻辑审计结论、兼容性变化和后续维护约束见 [handoff.md](handoff.md)。
 
 ## 许可证
 
