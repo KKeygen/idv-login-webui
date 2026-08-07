@@ -61,8 +61,11 @@ export function openExternal(url) {
     window.location.protocol === 'idvlogin:' ||
     window.location.hostname === 'localhost'
   ) {
-    window.location.href = `idvlogin://open/${url.replace('://', '/')}`
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer')
+    request('/open-external-url', {
+      query: { url },
+    })
+    return
   }
+
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
