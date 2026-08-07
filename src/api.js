@@ -54,6 +54,26 @@ export function resourceUrl(url, locationLike = globalThis.window?.location) {
   return resolved
 }
 
+export function installIdvWindowOpenRewrite(windowLike = globalThis.window) {
+  if (
+    !windowLike ||
+    (
+      windowLike.location?.protocol !== 'idvlogin:' &&
+      windowLike.location?.hostname !== 'localhost'
+    )
+  ) {
+    return false
+  }
+  const OPEN = 'idvlogin://open/'
+  windowLike.open = function (url) {
+    if (url && /^https?:\/\//i.test(url)) {
+      windowLike.location.href = OPEN + url.replace('://', '/')
+    }
+    return null
+  }
+  return true
+}
+
 export function openExternal(url) {
   if (!url) return
   if (window.location.protocol === 'idvlogin:') {

@@ -135,7 +135,7 @@ const modules = moduleOrder.map(modulePath => (
   modulePath.endsWith('.vue') ? transformVue(modulePath) : transformJs(modulePath)
 )).join('\n')
 const css = readFileSync(resolve(root, 'src/style.css'), 'utf8').replaceAll('</style', '<\\/style')
-const script = `${vueGlobal}\nconst LucideVue = (() => { const exports = {}; const module = { exports };\n${lucide}\nreturn module.exports; })();\nconst __modules = Object.create(null);\n${modules}\nVue.createApp(__modules['src/App.vue'].default).mount('#app');`
+const script = `${vueGlobal}\nconst LucideVue = (() => { const exports = {}; const module = { exports };\n${lucide}\nreturn module.exports; })();\nconst __modules = Object.create(null);\n${modules}\n__modules['src/api.js'].installIdvWindowOpenRewrite();\nVue.createApp(__modules['src/App.vue'].default).mount('#app');`
   .replaceAll('</script', '<\\/script')
 
 const html = `<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width,initial-scale=1.0" />\n<meta name="color-scheme" content="dark" />\n<title>网易渠道服工具</title>\n<style>${css}</style>\n</head>\n<body><div id="app"></div><script>${script}</script></body>\n</html>\n`
