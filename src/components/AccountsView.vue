@@ -38,8 +38,13 @@ const defaultAccountLabel = computed(() => {
 })
 const channels = computed(() => {
   const data = app.state.manualChannels
-  if (Array.isArray(data)) return data.map(item => { const key = item.channel || item.app_channel; return { ...item, channel: key, name: item.name || channelNames[key] || key } }).filter(item => item.channel)
-  return Object.entries(data || {}).map(([channel, value]) => typeof value === 'object' ? { ...value, channel: value.channel || value.app_channel || channel, name: value.name || channel } : { channel, name: String(value || channel) })
+  const list = Array.isArray(data)
+    ? data.map(item => { const key = item.channel || item.app_channel; return { ...item, channel: key, name: item.name || channelNames[key] || key } }).filter(item => item.channel)
+    : Object.entries(data || {}).map(([channel, value]) => typeof value === 'object' ? { ...value, channel: value.channel || value.app_channel || channel, name: value.name || channel } : { channel, name: String(value || channel) })
+  if (list.some(item => item.channel === 'myapp') && !list.some(item => item.channel === 'myapp_qq')) {
+    list.push({ channel: 'myapp_qq', name: channelNames['myapp_qq'] || '应用宝（QQ）' })
+  }
+  return list
 })
 function formatTime(value) { return value ? new Date(Number(value) * 1000).toLocaleString() : '从未登录' }
 function toggle(uuid) { const next = new Set(selected.value); next.has(uuid) ? next.delete(uuid) : next.add(uuid); selected.value = next }
