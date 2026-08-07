@@ -16,6 +16,21 @@ const qrData = ref({ status: 'loading', qrcode_base64: '' })
 let qrTimer = null
 let qrGameId = ''
 
+const qrReadyHints = { myapp:'请使用微信扫描二维码登录', bilibili_sdk:'请使用哔哩哔哩扫描二维码登录', huawei:'请使用手机浏览器扫描二维码登录' }
+const qrStatusText = computed(() => {
+  const map = {
+    idle:'等待开始登录… 如果长时间没有反应，可能是您的工具版本太旧，请更新',
+    loading:'正在获取二维码…',
+    ready: qrReadyHints[channel.value] || '请使用对应客户端扫码',
+    scanned:'扫码成功，正在校验…',
+    verified:'校验成功，正在导入…',
+    expired:'二维码已过期',
+    failed:'扫码失败',
+    retrying:'连接失败，正在重试…',
+  }
+  return map[qrData.value.status] || '正在处理…'
+})
+
 const accounts = computed(() => app.state.accounts.filter(item => !String(item.uuid || '').startsWith('netease')))
 const defaultAccountLabel = computed(() => {
   const account = accounts.value.find(item => item.uuid === app.state.defaultUuid)
@@ -89,7 +104,7 @@ async function importAccount(loginMethod = '') {
   if (!channel.value) return app.notify('请先选择渠道', 'warning')
   const target = channel.value
   const gameId = app.state.gameId
-  if (['myapp', 'bilibili_sdk'].includes(target) && !loginMethod) {
+  if (['myapp', 'bilibili_sdk', 'huawei'].includes(target) && !loginMethod) {
     try {
       qrData.value = await request('/qrcode', { query: { channel: target, game_id: gameId, _ts: Date.now() } })
       if (!cmpGameId(gameId, app.state.gameId)) {
@@ -169,7 +184,7 @@ onDeactivated(leaveAccounts)
     </section>
 
     <ModalShell :open="qrOpen" title="扫码登录" @close="closeQr">
-      <div class="qr-panel"><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ ({ idle:'等待开始登录…', loading:'正在获取二维码…', ready:'请使用对应客户端扫码', scanned:'扫码成功，正在校验…', verified:'校验成功，正在导入…', expired:'二维码已过期', failed:'扫码失败', retrying:'连接失败，正在重试…' })[qrData.status] || '正在处理…' }}</p><button v-if="channel === 'bilibili_sdk'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
+      <div class="qr-panel"><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
     </ModalShell>
   </section>
 </template>
