@@ -44,6 +44,10 @@ const channels = computed(() => {
   if (list.some(item => item.channel === 'myapp') && !list.some(item => item.channel === 'myapp_qq')) {
     list.push({ channel: 'myapp_qq', name: channelNames['myapp_qq'] || '应用宝（QQ）' })
   }
+  // 每个游戏无条件补充九游渠道入口（后端 cloudRes 可能未收录，前端兜底保证可用）
+  if (!list.some(item => item.channel === 'uc_platform')) {
+    list.push({ channel: 'uc_platform', name: channelNames['uc_platform'] || '九游账号' })
+  }
   return list
 })
 function formatTime(value) { return value ? new Date(Number(value) * 1000).toLocaleString() : '从未登录' }
