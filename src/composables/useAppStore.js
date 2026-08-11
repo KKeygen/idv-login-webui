@@ -30,7 +30,7 @@ const ACCOUNT_CACHE_TTL = 30_000
 let gamesLoadRequest = null
 
 function gameCacheKey(gameId = '') {
-  return String(gameId).split('-').pop()
+  return shortGameId(gameId)
 }
 
 function notify(message, tone = 'info') {
@@ -41,9 +41,13 @@ function notify(message, tone = 'info') {
 
 export function cmpGameId(a = '', b = '') {
   if (a === b) return true
-  const sa = String(a).split('-').pop()
-  const sb = String(b).split('-').pop()
+  const sa = shortGameId(a)
+  const sb = shortGameId(b)
   return Boolean(sa && sb && sa === sb)
+}
+
+export function shortGameId(gameId = '') {
+  return String(gameId).split('-').pop() || ''
 }
 
 export function normalizeGames(data = {}) {
@@ -285,7 +289,7 @@ async function loadAccounts({ force = false } = {}) {
   const pending = Promise.allSettled([
     request('/list', { query: { game_id: gameId } }),
     request('/manualChannels', { query: { game_id: gameId } }),
-    request('/defaultChannel', { query: { game_id: gameId } }),
+    request('/defaultChannel', { query: { game_id: shortGameId(gameId) } }),
     request('/get-auto-close-state', { query: { game_id: gameId } }),
   ]).then(([list, manual, def, close]) => {
     const previous = accountDataByGame.get(key) || {}
