@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
-import { cmpGameId, useAppStore } from '../composables/useAppStore'
+import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
 import { showConfirm, showPrompt } from '../dialogService'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
@@ -77,8 +77,8 @@ async function removeSelected() {
   selected.value = new Set()
   await app.loadAccounts({ force: true })
 }
-async function setDefault(uuid) { await app.mutate('default', '/setDefault', { query: { uuid, game_id: app.state.gameId } }) }
-async function clearDefault() { await app.mutate('clear-default', '/clearDefault', { query: { game_id: app.state.gameId } }) }
+async function setDefault(uuid) { await app.mutate('default', '/setDefault', { query: { uuid, game_id: shortGameId(app.state.gameId) } }) }
+async function clearDefault() { await app.mutate('clear-default', '/clearDefault', { query: { game_id: shortGameId(app.state.gameId) } }) }
 async function toggleDefault(uuid) { app.state.defaultUuid === uuid ? await clearDefault() : await setDefault(uuid) }
 
 function stopQr() { if (qrTimer) clearTimeout(qrTimer); qrTimer = null }
