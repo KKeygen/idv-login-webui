@@ -27,7 +27,7 @@ describe('legacy API surface', () => {
     const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
     const launcher = readFileSync(new URL('../src/components/LauncherView.vue', import.meta.url), 'utf8')
     const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
-    expect(launcher).toContain('class="launcher-hero-image" :src="hero"')
+    expect(launcher).toMatch(/<img\b(?=[^>]*\bclass="launcher-hero-image")(?=[^>]*:src="hero")[^>]*>/)
     expect(app).toContain('class="workspace-tab-background" :src="activeGameBackground"')
     expect(launcher).not.toContain('`url(${hero})`')
     expect(styles).not.toMatch(/url\(\s*['"]?https?:\/\//i)
