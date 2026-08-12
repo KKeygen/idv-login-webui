@@ -21,12 +21,16 @@ const downloadStatus = ref(null)
 const controlPending = ref('')
 const choosingPath = ref(false)
 const now = ref(Date.now())
+const easterClickCount = ref(0)
+const easterFrameSrc = ref('')
+const easterFrameReady = ref(false)
 let downloadGeneration = 0
 let selectionGeneration = 0
 let pathRequestGeneration = 0
 let clockTimer = null
 let viewActive = true
 const launcherReady = computed(() => Boolean(app.state.launcher?.game_id))
+const EASTER_EGG_URL = 'https://fever.snakekiss.com/'
 
 const distributions = computed(() => app.state.launcher?.distributions || [])
 const distribution = computed(() => distributions.value.find(item => String(item.distribution_id) === String(distributionId.value)) || distributions.value[0] || null)
@@ -89,6 +93,29 @@ function selectionMatches(scope) {
     && String(scope.distributionId) === String(distributionId.value ?? ''),
   )
 }
+
+function resetEasterEgg() {
+  easterClickCount.value = 0
+  easterFrameReady.value = false
+  easterFrameSrc.value = ''
+}
+
+function handleEasterBackgroundClick() {
+  if (easterFrameSrc.value) return
+  easterClickCount.value += 1
+  if (easterClickCount.value === 3) app.notify('背景里好像藏着什么，再点击两次。')
+  if (easterClickCount.value === 4) app.notify('再点击一次。')
+  if (easterClickCount.value >= 5) easterFrameSrc.value = EASTER_EGG_URL
+}
+
+function handleEasterFrameLoad() {
+  easterFrameReady.value = true
+}
+
+function handleEasterFrameError() {
+  resetEasterEgg()
+  app.notify('隐藏展示暂时无法打开', 'error')
+}
 async function refreshIfCurrent(scope) {
   if (selectionMatches(scope)) await app.refreshCurrent()
 }
@@ -105,6 +132,7 @@ watch(
       !cmpGameId(gameId, previous[0]) || String(selectedDistribution) !== String(previous[1])
     )
     if (selectionChanged) {
+      resetEasterEgg()
       selectionGeneration += 1
       pathRequestGeneration += 1
       downloadGeneration += 1
@@ -140,8 +168,8 @@ function syncClock() {
 watch(downloadActive, syncClock, { immediate: true })
 onMounted(() => document.addEventListener('visibilitychange', syncClock))
 onActivated(() => { viewActive = true; syncClock() })
-onDeactivated(() => { viewActive = false; stopClock() })
-onBeforeUnmount(() => { document.removeEventListener('visibilitychange', syncClock); stopClock(); downloadGeneration += 1 })
+onDeactivated(() => { viewActive = false; stopClock(); resetEasterEgg() })
+onBeforeUnmount(() => { document.removeEventListener('visibilitychange', syncClock); stopClock(); resetEasterEgg(); downloadGeneration += 1 })
 
 async function inspectTargetPath(path) {
   return request('/native/path-status', { query: { path } })
@@ -413,9 +441,29 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
 <template>
   <section class="launcher-view">
     <Transition name="hero-crossfade">
-      <img v-if="hero" :key="hero" class="launcher-hero-image" :src="hero" alt="" decoding="async" fetchpriority="high" />
+      <img v-if="hero" :key="hero" class="launcher-hero-image" :class="{ 'is-easter-hidden': easterFrameReady }" :src="hero" alt="" decoding="async" fetchpriority="high" />
     </Transition>
-    <div class="hero-shade"></div>
+    <div class="hero-shade" :class="{ 'is-easter-hidden': easterFrameReady }"></div>
+    <button
+      v-if="hero && !easterFrameSrc"
+      class="launcher-easter-hit-area"
+      type="button"
+      tabindex="-1"
+      aria-hidden="true"
+      data-reveal="off"
+      @click="handleEasterBackgroundClick"
+    ></button>
+    <iframe
+      v-if="easterFrameSrc"
+      class="launcher-easter-frame"
+      :class="{ 'is-ready': easterFrameReady }"
+      :src="easterFrameSrc"
+      title="隐藏角色展示"
+      sandbox="allow-scripts allow-same-origin"
+      referrerpolicy="no-referrer"
+      @load="handleEasterFrameLoad"
+      @error="handleEasterFrameError"
+    ></iframe>
     <section class="launcher-identity">
       <Transition name="brand-crossfade" mode="out-in">
         <img v-if="brandLogo" :key="brandLogo" class="launcher-brand-logo" :src="brandLogo" :alt="title" width="330" height="138" decoding="async" />
