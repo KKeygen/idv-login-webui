@@ -459,6 +459,7 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
       :class="{ 'is-ready': easterFrameReady }"
       :src="easterFrameSrc"
       title="勘探快跑"
+      allow="autoplay"
       sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       referrerpolicy="no-referrer"
       @load="handleEasterFrameLoad"
