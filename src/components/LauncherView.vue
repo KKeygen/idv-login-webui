@@ -30,7 +30,7 @@ let pathRequestGeneration = 0
 let clockTimer = null
 let viewActive = true
 const launcherReady = computed(() => Boolean(app.state.launcher?.game_id))
-const EASTER_EGG_URL = 'https://fever.snakekiss.com/'
+const EASTER_EGG_URL = 'https://goldrush.snakekiss.com/'
 
 const distributions = computed(() => app.state.launcher?.distributions || [])
 const distribution = computed(() => distributions.value.find(item => String(item.distribution_id) === String(distributionId.value)) || distributions.value[0] || null)
@@ -458,8 +458,8 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
       class="launcher-easter-frame"
       :class="{ 'is-ready': easterFrameReady }"
       :src="easterFrameSrc"
-      title="隐藏角色展示"
-      sandbox="allow-scripts allow-same-origin"
+      title="勘探快跑"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       referrerpolicy="no-referrer"
       @load="handleEasterFrameLoad"
       @error="handleEasterFrameError"
