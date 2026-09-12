@@ -154,7 +154,7 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
       ></div>
       <GameRail :open="gameRailOpen || gameCatalogOpen" @pointer-enter="keepGameRailAlive" @pointer-leave="scheduleGameRailClose" @catalog-change="setGameCatalogOpen" />
       <div v-if="app.state.connection === 'disconnected'" class="offline-panel">
-        <WifiOff :size="34" /><h2>工具后端未连接</h2><p>请确认工具正在运行，然后重试。</p><div class="inline"><button class="primary" @click="reconnect">重新连接</button><button class="ghost" @click="openExternal('https://www.yuque.com/keygen/kg2r5k/xl9zosrwviyc54nu')"><CircleHelp :size="17" /> 常见问题</button></div>
+        <WifiOff :size="34" /><h2>工具后端未连接</h2><p>请确认工具正在运行，然后重试。</p><div class="inline"><button class="primary" @click="reconnect">重新连接</button><button class="ghost" @click="openExternal('https://kkeygenn.feishu.cn/wiki/W3IfwUkUki6cYqkJ5grckRmvnWb')"><CircleHelp :size="17" /> 常见问题</button></div>
       </div>
       <div v-else class="view-host">
         <Transition name="page-change" mode="out-in">

@@ -9,7 +9,7 @@ import HelpTip from './HelpTip.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
-const CLOUD_SYNC_POLICY_URL = 'https://www.yuque.com/keygen/kg2r5k/pvb2mdma2zpq442g'
+const CLOUD_SYNC_POLICY_URL = 'https://kkeygenn.feishu.cn/wiki/ZbgVwYBjliWSoakinFbcqt40n8k'
 const policy = ref(null)
 const supported = ref(true)
 const accounts = ref([])

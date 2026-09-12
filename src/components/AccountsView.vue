@@ -163,7 +163,7 @@ onDeactivated(leaveAccounts)
 
 <template>
   <section class="content-page accounts-page">
-    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://www.yuque.com/keygen/kg2r5k/izpgpf4g3ecqsbf3#WD82D')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
+    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
     <section v-else class="account-list">
       <header class="account-list-toolbar">
