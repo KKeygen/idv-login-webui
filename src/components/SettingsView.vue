@@ -44,16 +44,38 @@ async function optional(path, options, unsupportedKey) {
     throw error
   }
 }
+function parseVersion(value) {
+  const match = String(value || '').match(/\d+(?:\.\d+)*/)
+  return match ? match[0].split('.').map(Number) : null
+}
+function versionGreaterThan(value, target) {
+  const current = parseVersion(value)
+  const base = parseVersion(target)
+  if (!current || !base) return false
+  const length = Math.max(current.length, base.length)
+  for (let index = 0; index < length; index += 1) {
+    const left = current[index] || 0
+    const right = base[index] || 0
+    if (left !== right) return left > right
+  }
+  return false
+}
 async function load() {
   loading.value = true
   try {
+    const health = await request('/health').catch(() => null)
+    const toolVersion = health && typeof health.version === 'string' ? health.version : ''
+    // 6.3.0-stable 起原生保存成为默认行为，不再提供开关；旧后端健康检查没有 version 字段。
+    form.nativeSupported = !(toolVersion && versionGreaterThan(toolVersion, '6.3.0-stable'))
     const [scan, native, proxy] = await Promise.allSettled([
       optional('/scan-record-setting', {}, 'scanSupported'),
-      optional('/native-save-setting', {}, 'nativeSupported'),
+      form.nativeSupported
+        ? optional('/native-save-setting', {}, 'nativeSupported')
+        : Promise.resolve(null),
       request('/proxy-mode'),
     ])
     if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
-    if (native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
+    if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
     if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
   } finally {
     loading.value = false
@@ -67,6 +89,7 @@ async function toggleScan() {
   app.notify('扫码记录设置已保存', 'success')
 }
 async function toggleNative() {
+  if (!form.nativeSupported) return
   if (!form.scanRecord && !form.nativeSave) return app.notify('请先开启扫码记录', 'warning')
   const data = await request('/native-save-setting', { method: 'POST', body: { enabled: !form.nativeSave } })
   if (data.success === false) throw new Error(data.error)
