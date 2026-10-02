@@ -2763,3 +2763,11 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 .game-catalog-grid { position: relative; }
 .catalog-item-leave-active,
 .list-item-leave-active { width: 100%; }
+
+.account-quota-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; font-size: 13px; }
+.account-quota-toolbar small { color: var(--muted); }
+.account-projection-state { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; margin-top: 4px; }
+.quota-error { color: #ff9292; }
+.quota-warning { color: var(--muted); font-size: 13px; }
+.accounts-page .account-list-row, .accounts-page .account-list-columns { grid-template-columns: 38px minmax(190px,1fr) minmax(120px,.7fr) 110px 245px; }
+@media (max-width: 1000px) { .accounts-page .account-list-row, .accounts-page .account-list-columns { grid-template-columns: 38px minmax(180px,1fr) 245px; } .accounts-page .account-list-row > time, .accounts-page .account-list-columns > :nth-child(3), .accounts-page .account-list-row > :nth-child(4), .accounts-page .account-list-columns > :nth-child(4) { display: none; } }
