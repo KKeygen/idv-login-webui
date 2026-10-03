@@ -17,7 +17,7 @@ const state = reactive({
   accounts: [], manualChannels: {}, defaultUuid: '', autoClose: false,
   connection: 'checking', updateRequired: false, notices: [], busy: '',
   nativeCapabilities: null,
-  accountListModelVersion: 0,
+  backendVersion: '',
   launcherVisual: null,
   railLaunchers: [],
   railTabs: persistedRail.tabs,
@@ -184,8 +184,8 @@ async function loadGames() {
   gamesLoadRequest = (async () => {
     try {
       const health = await request('/health')
-      state.accountListModelVersion = Number(health?.account_list_model_version) || 0
       if (health?.status !== 'ok') throw new Error('启动器后端尚未就绪')
+      state.backendVersion = typeof health.version === 'string' ? health.version : ''
       const data = await request('/list-games')
       if (data?.success === false) throw new Error(data.error || '获取游戏列表失败')
       state.connection = 'connected'
@@ -207,6 +207,7 @@ async function loadGames() {
       return data
     } catch (error) {
       state.connection = 'disconnected'
+      state.backendVersion = ''
       throw error
     }
   })().finally(() => { gamesLoadRequest = null })

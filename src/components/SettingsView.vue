@@ -3,15 +3,13 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMoun
 import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
+import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
 import HelpTip from './HelpTip.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
-const listSupported = computed(() => app.state.accountListModelVersion >= 1)
-const globalLimit = ref(7)
-const globalLimitError = ref('')
-const globalLimitSaving = ref(false)
+const switching = useAccountSwitching()
 const activeSection = ref('general')
 const sections = [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
@@ -73,18 +71,13 @@ async function load() {
     form.nativeSupported = !(toolVersion && versionGreaterThan(toolVersion, '6.3.0-stable'))
     const [scan, native, proxy] = await Promise.allSettled([
       optional('/scan-record-setting', {}, 'scanSupported'),
-      listSupported.value
-        ? request('/account-list-settings')
-        : form.nativeSupported
-          ? optional('/native-save-setting', {}, 'nativeSupported')
-          : Promise.resolve(null),
+      form.nativeSupported
+        ? optional('/native-save-setting', {}, 'nativeSupported')
+        : Promise.resolve(null),
       request('/proxy-mode'),
     ])
     if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
-    if (native.status === 'fulfilled' && native.value) {
-      if (listSupported.value) globalLimit.value = native.value.global_limit
-      else if (form.nativeSupported && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
-    }
+    if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
     if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
   } finally {
     loading.value = false
@@ -97,22 +90,6 @@ async function toggleScan() {
   if ('native_save_enabled' in data) form.nativeSave = Boolean(data.native_save_enabled)
   app.notify('扫码记录设置已保存', 'success')
 }
-async function saveGlobalLimit() {
-  globalLimitError.value = ''
-  if (!Number.isSafeInteger(Number(globalLimit.value)) || Number(globalLimit.value) <= 0) {
-    globalLimitError.value = '系统总额度必须为正整数'
-    return
-  }
-  globalLimitSaving.value = true
-  try {
-    const data = await request('/account-list-settings', { method: 'POST', body: { global_limit: Number(globalLimit.value) } })
-    if (data.success === false) throw new Error(data.error || '保存失败')
-    globalLimit.value = data.global_limit
-    app.notify('系统总额度已保存，下次启动游戏生效', 'success')
-  } catch (error) { globalLimitError.value = error.message }
-  finally { globalLimitSaving.value = false }
-}
-watch(listSupported, load)
 async function toggleNative() {
   if (!form.nativeSupported) return
   if (!form.scanRecord && !form.nativeSave) return app.notify('请先开启扫码记录', 'warning')
@@ -236,8 +213,8 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
             <article v-else-if="activeSection === 'general'" class="settings-card glass">
           <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div></header>
           <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" @change="toggleScan" /></label>
-          <label v-if="!listSupported && form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord" @change="toggleNative" /></label>
-          <div v-if="listSupported" class="field"><span>账号列表系统总额度（默认 7）</span><div class="inline"><input v-model.number="globalLimit" type="number" min="1" step="1" aria-label="账号列表系统总额度" /><button class="ghost" :disabled="globalLimitSaving" @click="saveGlobalLimit">保存</button></div><small>更多账号会增加续期服务器负载。置顶账号占用额度，修改于下次启动游戏生效。</small><p v-if="globalLimitError" class="quota-error" role="alert">{{ globalLimitError }}</p><small>原生账号记录按渠道固定策略及云端配置保存。</small></div>
+          <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord" @change="toggleNative" /></label>
+          <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>游戏内切换渠道服账号</strong><small>选择游戏和账号，随时开启或重新配置</small></span><button class="quiet-button" :disabled="switching.state.saving" @click="switching.openWizard">打开配置向导</button></div>
           <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><input v-model="form.newsVisible" type="checkbox" @change="setNews" /></label>
         </article>
         <article v-else-if="activeSection === 'network'" class="settings-card glass">

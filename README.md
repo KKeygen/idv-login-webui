@@ -53,6 +53,8 @@ src/
 └── App.vue
 ```
 
+6.3.2 游戏内账号切换向导的接口契约和本地验收方式见 [账号切换向导说明](docs/account-switching-632.md)。
+
 完整迁移范围与 API 对照见 [docs/feature-coverage.md](docs/feature-coverage.md)。Starward 设计规范映射见 [STARWARD_DESIGN_SYSTEM.md](STARWARD_DESIGN_SYSTEM.md)，动效范式与实现说明见 [STARWARD_MOTION_SYSTEM.md](STARWARD_MOTION_SYSTEM.md)。逻辑审计结论、兼容性变化和后续维护约束见 [handoff.md](handoff.md)。
 
 ## 许可证

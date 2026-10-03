@@ -1,77 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
+import { supportsAccountSwitching } from '../accountSwitching'
 import { showConfirm, showPrompt } from '../dialogService'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
+import AccountSwitchingSettings from './AccountSwitchingSettings.vue'
 
 const app = useAppStore()
-const listSupported = computed(() => app.state.accountListModelVersion >= 1)
-const listSettings = reactive({ global_limit: 7, limit: 5, pinned: [] })
-const settingsReady = ref(false)
-const quotaOpen = ref(false)
-const quotaError = ref('')
-const pendingPinned = ref(null)
-const quotaSaving = ref(false)
-const quotaForm = reactive({ global_limit: 7, limit: 5 })
-let settingsGeneration = 0
-async function loadListSettings() {
-  const generation = ++settingsGeneration
-  settingsReady.value = false
-  Object.assign(listSettings, { global_limit: 7, limit: 5, pinned: [] })
-  if (!listSupported.value || !app.state.gameId) return
-  const gameId = app.state.gameId
-  try {
-    const data = await request('/account-list-settings', { query: { game_id: gameId } })
-    if (generation === settingsGeneration && cmpGameId(gameId, app.state.gameId)) { Object.assign(listSettings, data); settingsReady.value = true }
-  } catch (error) { if (generation === settingsGeneration) app.notify(error.message, 'error') }
-}
-function openQuota(error = '', pinned = null) {
-  pendingPinned.value = pinned
-  quotaError.value = error
-  Object.assign(quotaForm, { global_limit: listSettings.global_limit, limit: listSettings.limit })
-  quotaOpen.value = true
-}
-function positiveInteger(value) { return Number.isSafeInteger(Number(value)) && Number(value) > 0 }
-async function saveListSettings(body, gameId) {
-  const data = await request('/account-list-settings', { method: 'POST', query: { game_id: gameId }, body })
-  if (data.success === false) throw new Error(data.error || '账号列表设置保存失败')
-  if (cmpGameId(gameId, app.state.gameId)) {
-    Object.assign(listSettings, data)
-    await app.loadAccounts({ force: true })
-  }
-  return data
-}
-async function saveQuota() {
-  if (!positiveInteger(quotaForm.global_limit) || !positiveInteger(quotaForm.limit)) {
-    quotaError.value = '额度必须为正整数'
-    return
-  }
-  quotaSaving.value = true
-  const gameId = app.state.gameId
-  try {
-    await saveListSettings({ global_limit: Number(quotaForm.global_limit), limit: Number(quotaForm.limit), ...(pendingPinned.value ? { pinned: pendingPinned.value } : {}) }, gameId)
-    quotaOpen.value = false
-    app.notify('账号列表额度已保存，下次启动游戏生效', 'success')
-  } catch (error) { quotaError.value = error.message }
-  finally { quotaSaving.value = false }
-}
-async function togglePin(account) {
-  if (quotaSaving.value || !settingsReady.value) return
-  quotaSaving.value = true
-  const gameId = app.state.gameId
-  const pinned = new Set(listSettings.pinned)
-  pinned.has(account.uuid) ? pinned.delete(account.uuid) : pinned.add(account.uuid)
-  try {
-    await saveListSettings({ pinned: [...pinned] }, gameId)
-    app.notify('置顶设置已保存，下次启动游戏生效', 'success')
-  } catch (error) {
-    if (cmpGameId(gameId, app.state.gameId)) openQuota(error.message, [...pinned])
-  } finally { quotaSaving.value = false }
-}
-watch([listSupported, () => app.state.gameId], () => { quotaOpen.value = false; loadListSettings() }, { immediate: true })
+const listSupported = computed(() => supportsAccountSwitching(app.state.backendVersion))
 const channelNames = { xiaomi_app:'小米账号', huawei:'华为账号', nearme_vivo:'vivo账号', myapp:'应用宝（微信）', myapp_qq:'应用宝（QQ）', oppo:'OPPO账号', bilibili_sdk:'哔哩哔哩账号', honor_sdk:'荣耀账号', uc_platform:'九游账号' }
 const selected = ref(new Set())
 const channel = ref('')
@@ -228,7 +167,7 @@ onDeactivated(leaveAccounts)
 <template>
   <section class="content-page accounts-page">
     <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
-    <div v-if="listSupported" class="account-quota-toolbar"><span>游戏账号列表额度：<strong>{{ listSettings.limit }}</strong> · 系统总额度：<strong>{{ listSettings.global_limit }}</strong></span><button class="quiet-button" @click="loadListSettings().then(() => openQuota())">调整额度</button><small>置顶账号占用额度，修改于下次启动游戏生效。</small></div>
+    <AccountSwitchingSettings />
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
     <section v-else class="account-list">
       <header class="account-list-toolbar">
@@ -249,22 +188,14 @@ onDeactivated(leaveAccounts)
         @keydown.space.prevent="toggle(account.uuid)"
       >
         <span class="account-selection"><Check v-if="selected.has(account.uuid)" :size="14" /></span>
-        <div class="account-identity"><div class="avatar">{{ (account.display_name || account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.display_name || account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code><div v-if="listSupported" class="account-projection-state"><span>{{ account.included ? '当前已包含' : '当前未包含' }}</span><span>{{ account.will_include ? '下次启动将包含' : '下次启动不包含' }}</span></div></div></div>
+        <div class="account-identity"><div class="avatar">{{ (account.display_name || account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.display_name || account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code><div v-if="listSupported && typeof account.included === 'boolean' && typeof account.will_include === 'boolean'" class="account-projection-state"><span>{{ account.included ? '当前已包含' : '当前未包含' }}</span><span>{{ account.will_include ? '下次启动将包含' : '下次启动不包含' }}</span></div></div></div>
         <time>{{ formatTime(account.last_login_time) }}</time>
         <div><button class="account-auto-login-toggle" :class="{ active: app.state.defaultUuid === account.uuid }" role="switch" :aria-checked="app.state.defaultUuid === account.uuid" :title="app.state.defaultUuid === account.uuid ? '关闭此账号的自动登录' : '将此账号设为自动登录'" @click.stop="toggleDefault(account.uuid)"><span class="account-auto-login-track" aria-hidden="true"></span><span>{{ app.state.defaultUuid === account.uuid ? '开启' : '关闭' }}</span></button></div>
-        <div class="account-actions" @click.stop><button v-if="listSupported" class="quiet-button" role="switch" :aria-checked="Boolean(account.pinned)" :disabled="quotaSaving || !settingsReady" :title="account.pinned ? '取消置顶' : '置顶（占用账号额度）'" @click="togglePin(account)">{{ account.pinned ? '已置顶' : '置顶' }}</button><button class="quiet-button account-login" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
+        <div class="account-actions" @click.stop><button class="quiet-button account-login" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
       </article>
       </TransitionGroup>
     </section>
 
-    <ModalShell :open="quotaOpen" title="调整账号列表额度" @close="quotaOpen = false">
-      <p v-if="quotaError" class="quota-error" role="alert">{{ quotaError }}</p>
-      <p>置顶账号占用额度。请同时确保游戏额度和系统总额度足够容纳置顶账号。</p>
-      <label class="field"><span>当前游戏额度（默认 5）</span><input v-model.number="quotaForm.limit" type="number" min="1" step="1" /></label>
-      <label class="field"><span>系统总额度（默认 7）</span><input v-model.number="quotaForm.global_limit" type="number" min="1" step="1" /></label>
-      <p class="quota-warning">更多账号会增加续期服务器负载，请按实际需要设置。修改于下次启动游戏生效。</p>
-      <template #footer><button class="ghost" @click="quotaOpen = false">取消</button><button class="primary" :disabled="quotaSaving" @click="saveQuota">保存额度</button></template>
-    </ModalShell>
     <ModalShell :open="qrOpen" title="扫码登录" @close="closeQr">
       <div class="qr-panel"><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
     </ModalShell>

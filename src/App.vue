@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Home, Users, Settings, Cloud, WifiOff, CircleHelp } from '@lucide/vue'
 import { openExternal, request, resourceUrl } from './api'
 import { installMotionSystem } from './motion'
@@ -10,8 +10,23 @@ import AccountsView from './components/AccountsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import CloudSyncView from './components/CloudSyncView.vue'
 import AppDialogHost from './components/AppDialogHost.vue'
+import AccountSwitchingWizard from './components/AccountSwitchingWizard.vue'
+import { useAccountSwitching } from './composables/useAccountSwitching'
 
 const app = useAppStore()
+const switching = useAccountSwitching()
+let switchingRouteHandled = false
+watch(() => app.state.backendVersion, () => {
+  if (!switching.supported.value) { switching.reset(); return }
+  if (!switchingRouteHandled && new URLSearchParams(location.search).get('view') === 'account-switching') {
+    switchingRouteHandled = true
+    switching.openWizard()
+    // Consume this one-shot route; dismissal and refresh return to normal UI.
+    const url = new URL(location.href)
+    url.searchParams.delete('view')
+    history.replaceState({}, '', url)
+  }
+})
 const gameRailOpen = ref(false)
 const gameCatalogOpen = ref(false)
 const viewComponents = { launcher: LauncherView, accounts: AccountsView, settings: SettingsView, cloud: CloudSyncView }
@@ -174,6 +189,7 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
     <TransitionGroup name="toast-list" tag="div" class="toasts">
       <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>
     </TransitionGroup>
+    <AccountSwitchingWizard v-if="switching.supported.value" />
     <AppDialogHost />
   </main>
 </template>
