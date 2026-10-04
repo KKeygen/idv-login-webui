@@ -3,13 +3,18 @@ import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
+import { supportsAccountSwitching } from '../accountSwitching'
 import { showConfirm, showPrompt } from '../dialogService'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
+import AccountSwitchingSettings from './AccountSwitchingSettings.vue'
 
 const app = useAppStore()
+const listSupported = computed(() => supportsAccountSwitching(app.state.backendVersion))
 const channelNames = { xiaomi_app:'小米账号', huawei:'华为账号', nearme_vivo:'vivo账号', myapp:'应用宝（微信）', myapp_qq:'应用宝（QQ）', oppo:'OPPO账号', bilibili_sdk:'哔哩哔哩账号', honor_sdk:'荣耀账号', uc_platform:'九游账号' }
 const selected = ref(new Set())
+const loggingIn = ref('')
+const deleting = ref(false)
 const channel = ref('')
 const qrOpen = ref(false)
 const qrData = ref({ status: 'loading', qrcode_base64: '' })
@@ -34,7 +39,7 @@ const qrStatusText = computed(() => {
 const accounts = computed(() => app.state.accounts.filter(item => !String(item.uuid || '').startsWith('netease')))
 const defaultAccountLabel = computed(() => {
   const account = accounts.value.find(item => item.uuid === app.state.defaultUuid)
-  return account?.name || account?.uuid || '未设置'
+  return account?.display_name || account?.name || account?.uuid || '未设置'
 })
 const channels = computed(() => {
   const data = app.state.manualChannels
@@ -53,32 +58,118 @@ const channels = computed(() => {
 function formatTime(value) { return value ? new Date(Number(value) * 1000).toLocaleString() : '从未登录' }
 function toggle(uuid) { const next = new Set(selected.value); next.has(uuid) ? next.delete(uuid) : next.add(uuid); selected.value = next }
 function toggleAll() { selected.value = selected.value.size === accounts.value.length ? new Set() : new Set(accounts.value.map(item => item.uuid)) }
+function accountLabel(uuid) {
+  const account = accounts.value.find(item => item.uuid === uuid)
+  return account?.display_name || account?.name || uuid || '此账号'
+}
+async function refreshAccounts(gameId) {
+  try {
+    await app.loadAccounts({ force: true, gameId })
+    return true
+  } catch {
+    app.notify('账号列表刷新失败，当前显示可能不是最新结果。请到应用设置的诊断页刷新全部数据后再操作', 'warning')
+    return false
+  }
+}
 async function login(uuid) {
+  if (loggingIn.value) return
   const gameId = app.state.gameId
-  let result = await request('/switch', { query: { uuid, game_id: gameId } })
-  result = await resolveTask(result, '/switch-status')
-  if (result.result === false || result.success === false) throw new Error(result.error || '账号登录失败，请检查工具日志')
-  app.notify(cmpGameId(gameId, app.state.gameId) ? '账号登录完成' : '账号登录已在原游戏中完成', 'success')
-  if (cmpGameId(gameId, app.state.gameId)) await app.loadAccounts({ force: true })
+  const label = accountLabel(uuid)
+  loggingIn.value = uuid
+  try {
+    let result = await request('/switch', { query: { uuid, game_id: gameId } })
+    result = await resolveTask(result, '/switch-status')
+    if (result?.cancelled) return app.notify(`已取消“${label}”的登录`)
+    if (!result || result.status === 'pending' || !('current' in result || 'result' in result || 'success' in result)) throw new Error('Login result unavailable')
+    if (result.result === false || result.success === false) {
+      app.notify(`“${label}”登录未完成：${result.error || '请重新登录；仍失败时请在应用设置的诊断页查看日志'}`, 'error')
+      await refreshAccounts(gameId)
+      return
+    }
+    app.notify(cmpGameId(gameId, app.state.gameId) ? `“${label}”登录完成` : `“${label}”已在原游戏中登录`, 'success')
+    await refreshAccounts(gameId)
+  } catch {
+    app.notify(`无法确认“${label}”的登录结果。请先检查游戏登录状态，再重试；仍失败时请查看工具日志`, 'error')
+    await refreshAccounts(gameId)
+  } finally { loggingIn.value = '' }
 }
 async function rename(account) {
+  const gameId = app.state.gameId
+  const label = accountLabel(account.uuid)
   const name = await showPrompt('输入这个账号的新名称。', { title: '重命名账号', inputLabel: '账号名称', defaultValue: account.name || '', confirmText: '保存' })
-  if (name !== null) await app.mutate('rename', '/rename', { query: { uuid: account.uuid, new_name: name } })
+  if (name === null) return
+  try {
+    const result = await request('/rename', { query: { uuid: account.uuid, new_name: name } })
+    if (result.success !== true) throw new Error('Rename not completed')
+    app.notify(`“${label}”已重命名`, 'success')
+  } catch {
+    app.notify(`“${label}”重命名未完成，请核对刷新后的名称再重试；仍失败时请查看工具日志`, 'error')
+  }
+  await refreshAccounts(gameId)
 }
 async function remove(uuid) {
-  const confirmed = await showConfirm('删除后需要重新导入才能再次使用该账号。', { title: '删除账号记录', confirmText: '删除', danger: true })
-  if (confirmed) await app.mutate('delete', '/del', { query: { uuid } })
+  if (deleting.value) return
+  const gameId = app.state.gameId
+  const label = accountLabel(uuid)
+  const confirmed = await showConfirm(`删除“${label}”后需要重新导入才能再次使用该账号。`, { title: '删除账号记录', confirmText: '删除', danger: true })
+  if (!confirmed || deleting.value) return
+  deleting.value = true
+  try {
+    const result = await request('/del', { query: { uuid } })
+    if (result.success !== true) throw new Error('Delete not completed')
+    app.notify(`已删除“${label}”`, 'success')
+  } catch {
+    app.notify(`“${label}”未能完整删除，部分游戏记录可能已更新。请关闭游戏，核对刷新后的列表后重试；详情见工具日志`, 'error')
+  } finally {
+    await refreshAccounts(gameId)
+    deleting.value = false
+  }
 }
 async function removeSelected() {
-  if (!selected.value.size) return
-  const confirmed = await showConfirm(`将删除选中的 ${selected.value.size} 个账号记录。`, { title: '批量删除账号', confirmText: '全部删除', danger: true })
-  if (!confirmed) return
-  for (const uuid of selected.value) await request('/del', { query: { uuid } })
-  selected.value = new Set()
-  await app.loadAccounts({ force: true })
+  if (!selected.value.size || deleting.value) return
+  const gameId = app.state.gameId
+  const targets = [...selected.value].map(uuid => ({ uuid, label: accountLabel(uuid) }))
+  const confirmed = await showConfirm(`将删除选中的 ${targets.length} 个账号记录。`, { title: '批量删除账号', confirmText: '全部删除', danger: true })
+  if (!confirmed || deleting.value) return
+  deleting.value = true
+  const failed = []
+  let completed = 0
+  try {
+    for (const target of targets) {
+      try {
+        const result = await request('/del', { query: { uuid: target.uuid } })
+        if (result.success !== true) throw new Error('Delete not completed')
+        completed += 1
+      } catch { failed.push(target) }
+    }
+    if (cmpGameId(gameId, app.state.gameId)) selected.value = new Set(failed.map(item => item.uuid))
+    const refreshed = await refreshAccounts(gameId)
+    const summary = `批量删除：已完成 ${completed} 个，未完成 ${failed.length} 个`
+    if (failed.length) {
+      const labels = failed.slice(0, 3).map(item => `“${item.label}”`).join('、')
+      app.notify(`${summary}（${labels}${failed.length > 3 ? '等' : ''}）。${refreshed ? '请关闭游戏，核对列表后重试未完成项' : '请关闭游戏并刷新列表后再重试'}；详情见工具日志`, 'warning')
+    } else app.notify(summary, 'success')
+  } finally { deleting.value = false }
 }
-async function setDefault(uuid) { await app.mutate('default', '/setDefault', { query: { uuid, game_id: shortGameId(app.state.gameId) } }) }
-async function clearDefault() { await app.mutate('clear-default', '/clearDefault', { query: { game_id: shortGameId(app.state.gameId) } }) }
+async function setDefault(uuid) {
+  const gameId = app.state.gameId
+  const label = accountLabel(uuid)
+  try {
+    const result = await request('/setDefault', { query: { uuid, game_id: shortGameId(gameId) } })
+    if (result.success !== true) throw new Error('Default not saved')
+    app.notify(`已设置“${label}”自动登录`, 'success')
+  } catch { app.notify(`“${label}”自动登录设置未完成，请核对刷新后的设置再重试`, 'error') }
+  await refreshAccounts(gameId)
+}
+async function clearDefault() {
+  const gameId = app.state.gameId
+  try {
+    const result = await request('/clearDefault', { query: { game_id: shortGameId(gameId) } })
+    if (result.success !== true) throw new Error('Default not cleared')
+    app.notify('已关闭自动登录', 'success')
+  } catch { app.notify('关闭自动登录未完成，请核对刷新后的设置再重试', 'error') }
+  await refreshAccounts(gameId)
+}
 async function toggleDefault(uuid) { app.state.defaultUuid === uuid ? await clearDefault() : await setDefault(uuid) }
 
 function stopQr() { if (qrTimer) clearTimeout(qrTimer); qrTimer = null }
@@ -124,7 +215,10 @@ async function importAccount(loginMethod = '') {
       qrOpen.value = true
       scheduleQrPoll(target, gameId)
     } catch (error) {
-      if (!(error instanceof ApiError) || ![404, 500].includes(error.status)) throw error
+      if (!(error instanceof ApiError) || ![404, 500].includes(error.status)) {
+        app.notify('无法开始扫码登录，请确认工具正在运行后重试', 'error')
+        return
+      }
       // 旧后端没有 QR 状态接口时，保留原有手动登录窗口流程。
     }
   }
@@ -132,11 +226,21 @@ async function importAccount(loginMethod = '') {
     let result = await request('/import', { query: { channel: target, game_id: gameId, ...(loginMethod ? { login_method: loginMethod } : {}) } })
     result = await resolveTask(result)
     stopQr(); qrOpen.value = false
-    if (result.cancelled) return
-    if (!result.success) throw new Error(result.error || '账号导入失败')
+    if (result.cancelled) return app.notify('已取消账号导入')
+    if (result.success !== true) {
+      const label = channels.value.find(item => item.channel === target)?.name || channelNames[target] || target
+      app.notify(`“${label}”账号导入未完成：${result.error || '请检查登录窗口后重试；仍失败时请查看工具日志'}`, 'error')
+      await refreshAccounts(gameId)
+      return
+    }
     app.notify(cmpGameId(gameId, app.state.gameId) ? '账号导入成功' : '账号已导入到原游戏', 'success')
-    if (cmpGameId(gameId, app.state.gameId)) await app.loadAccounts({ force: true })
-  } catch (error) { stopQr(); app.notify(error.message, 'error') }
+    await refreshAccounts(gameId)
+  } catch {
+    stopQr(); qrOpen.value = false
+    const label = channels.value.find(item => item.channel === target)?.name || channelNames[target] || target
+    app.notify(`“${label}”账号导入未完成，请检查登录窗口后重试；仍失败时请查看工具日志`, 'error')
+    await refreshAccounts(gameId)
+  }
 }
 async function biliWebLogin() { stopQr(); await request('/cancel-qr').catch(() => {}); await importAccount('web') }
 function closeQr() { stopQr(); qrOpen.value = false; qrGameId = ''; request('/cancel-qr').catch(() => {}) }
@@ -164,11 +268,12 @@ onDeactivated(leaveAccounts)
 <template>
   <section class="content-page accounts-page">
     <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
+    <AccountSwitchingSettings />
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
     <section v-else class="account-list">
       <header class="account-list-toolbar">
         <div><Star :size="17" /><span>自动登录：<strong>{{ defaultAccountLabel }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" @click="clearDefault">关闭</button></div>
-        <div><button class="quiet-button" @click="toggleAll"><CheckSquare :size="16" />{{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="quiet-button danger" :disabled="!selected.size" @click="removeSelected"><Trash2 :size="16" />删除所选</button><span>{{ accounts.length }} 个账号</span></div>
+        <div><button class="quiet-button" @click="toggleAll"><CheckSquare :size="16" />{{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="quiet-button danger" :disabled="!selected.size || deleting" @click="removeSelected"><Trash2 :size="16" />删除所选</button><span>{{ accounts.length }} 个账号</span></div>
       </header>
       <div class="account-list-columns" aria-hidden="true"><span></span><span>账号</span><span>上次登录</span><span>自动登录</span><span>操作</span></div>
       <TransitionGroup name="list-item" tag="div" class="account-list-body">
@@ -184,10 +289,10 @@ onDeactivated(leaveAccounts)
         @keydown.space.prevent="toggle(account.uuid)"
       >
         <span class="account-selection"><Check v-if="selected.has(account.uuid)" :size="14" /></span>
-        <div class="account-identity"><div class="avatar">{{ (account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code></div></div>
+        <div class="account-identity"><div class="avatar">{{ (account.display_name || account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.display_name || account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code><div v-if="listSupported && typeof account.included === 'boolean' && typeof account.will_include === 'boolean'" class="account-projection-state"><span>{{ account.included ? '当前已包含' : '当前未包含' }}</span><span>{{ account.will_include ? '下次启动将包含' : '下次启动不包含' }}</span></div></div></div>
         <time>{{ formatTime(account.last_login_time) }}</time>
         <div><button class="account-auto-login-toggle" :class="{ active: app.state.defaultUuid === account.uuid }" role="switch" :aria-checked="app.state.defaultUuid === account.uuid" :title="app.state.defaultUuid === account.uuid ? '关闭此账号的自动登录' : '将此账号设为自动登录'" @click.stop="toggleDefault(account.uuid)"><span class="account-auto-login-track" aria-hidden="true"></span><span>{{ app.state.defaultUuid === account.uuid ? '开启' : '关闭' }}</span></button></div>
-        <div class="account-actions" @click.stop><button class="quiet-button account-login" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
+        <div class="account-actions" @click.stop><button class="quiet-button account-login" :disabled="Boolean(loggingIn)" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" :disabled="deleting" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
       </article>
       </TransitionGroup>
     </section>

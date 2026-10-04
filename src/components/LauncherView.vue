@@ -2,7 +2,7 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { Clock3, Download, FolderOpen, PackageOpen, Pause, Play, Settings, Newspaper, ShieldCheck } from '@lucide/vue'
 import { openExternal, request, resolveTask, resourceUrl } from '../api'
-import { cmpGameId, useAppStore } from '../composables/useAppStore'
+import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -34,7 +34,7 @@ const EASTER_EGG_URL = 'https://goldrush.snakekiss.com/'
 
 const distributions = computed(() => app.state.launcher?.distributions || [])
 const distribution = computed(() => distributions.value.find(item => String(item.distribution_id) === String(distributionId.value)) || distributions.value[0] || null)
-const installation = computed(() => distribution.value?.installation || null)
+const installation = computed(() => distribution.value?.installation || (!distribution.value ? app.state.launcher?.game?.installation : null) || null)
 const installationId = computed(() => installation.value?.installation_id || '')
 const installed = computed(() => Boolean(installation.value?.installed))
 const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
@@ -53,6 +53,7 @@ const downloadStages = computed(() => downloadStatus.value?.stages || {})
 const sharedLauncher = computed(() => ({
   ...(app.currentGame.value?.launcher || {}),
   ...(app.state.launcherVisual || {}),
+  ...(app.state.launcher?.launcher || {}),
   ...(distributions.value.map(item => item.launcher || {}).find(item => item.background_image || item.main_image || item.logo || item.display_name) || {}),
 }))
 function mergeLauncher(primary = {}) {
@@ -64,7 +65,7 @@ const launcher = computed(() => mergeLauncher(distribution.value?.launcher))
 const hero = computed(() => resourceUrl(launcher.value.background_image || launcher.value.main_image || ''))
 const brandLogo = computed(() => resourceUrl(launcher.value.game_library_logo || launcher.value.logo || ''))
 const newsCover = computed(() => resourceUrl(launcher.value.main_image || ''))
-const title = computed(() => launcher.value.display_name || launcher.value.app_name || app.currentGame.value?.display_name || app.currentGame.value?.app_name || '游戏启动器')
+const title = computed(() => gameTitle({ ...app.currentGame.value, launcher: launcher.value }, app.state.gameId))
 const news = computed(() => launcher.value.activities_and_news?.tops || launcher.value.news || app.currentGame.value?.news || [])
 const newsMoreUrl = computed(() => launcher.value.activities_and_news?.more_url || '')
 const brandButtonStyle = computed(() => {

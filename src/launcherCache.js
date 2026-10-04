@@ -46,7 +46,7 @@ function mergeVisualLaunchers(data = {}) {
   const distributions = Array.isArray(data.distributions) ? data.distributions : []
   const preferredId = data.game?.default_distribution
   const preferred = distributions.find(item => String(item.distribution_id) === String(preferredId)) || distributions[0]
-  const merged = {}
+  const merged = { ...(data.launcher || {}) }
   for (const item of distributions) {
     for (const [key, value] of Object.entries(item.launcher || {})) {
       if (merged[key] === undefined || merged[key] === null || merged[key] === '') merged[key] = value

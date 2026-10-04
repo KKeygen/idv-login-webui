@@ -3,11 +3,13 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMoun
 import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
+import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
 import HelpTip from './HelpTip.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
+const switching = useAccountSwitching()
 const activeSection = ref('general')
 const sections = [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
@@ -29,6 +31,8 @@ const terminalSupported = ref(true)
 const terminalBox = ref(null)
 const resetting = ref(false)
 const loading = ref(true)
+const loadError = ref('')
+const saving = ref('')
 let terminalTimer = null
 let terminalGeneration = 0
 let viewActive = true
@@ -62,6 +66,7 @@ function versionGreaterThan(value, target) {
 }
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const health = await request('/health').catch(() => null)
     const toolVersion = health && typeof health.version === 'string' ? health.version : ''
@@ -76,34 +81,77 @@ async function load() {
     ])
     if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
     if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
-    if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+    if (proxy.status === 'fulfilled' && proxy.value && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+    if ([scan, native, proxy].some(result => result.status === 'rejected' || result.value?.success === false)
+      || (form.scanSupported && typeof scan.value?.enabled !== 'boolean')
+      || (form.nativeSupported && typeof native.value?.enabled !== 'boolean')
+      || !['global', 'process', 'compat'].includes(proxy.value?.mode)) {
+      loadError.value = '部分应用设置读取失败，请确认工具正在运行后重新读取，避免覆盖未读取的设置'
+    }
+  } catch {
+    loadError.value = '应用设置读取失败，请确认工具正在运行后重新读取'
   } finally {
     loading.value = false
   }
 }
-async function toggleScan() {
-  const data = await request('/scan-record-setting', { method: 'POST', body: { enabled: !form.scanRecord } })
-  if (data.success === false) throw new Error(data.error)
-  form.scanRecord = Boolean(data.enabled)
-  if ('native_save_enabled' in data) form.nativeSave = Boolean(data.native_save_enabled)
-  app.notify('扫码记录设置已保存', 'success')
+async function toggleScan(event) {
+  // A checkbox changes before the request returns; keep its last confirmed state.
+  event.target.checked = form.scanRecord
+  if (saving.value) return
+  saving.value = 'scan'
+  try {
+    const data = await request('/scan-record-setting', { method: 'POST', body: { enabled: !form.scanRecord } })
+    if (data.success !== true || typeof data.enabled !== 'boolean') throw new Error('Setting not saved')
+    form.scanRecord = data.enabled
+    if ('native_save_enabled' in data) form.nativeSave = Boolean(data.native_save_enabled)
+    app.notify('扫码记录设置已保存', 'success')
+  } catch { app.notify('扫码记录设置未确认保存，请重新读取设置后再试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = ''; event.target.checked = form.scanRecord }
 }
-async function toggleNative() {
-  if (!form.nativeSupported) return
+async function toggleNative(event) {
+  event.target.checked = form.nativeSave
+  if (!form.nativeSupported || saving.value) return
   if (!form.scanRecord && !form.nativeSave) return app.notify('请先开启扫码记录', 'warning')
-  const data = await request('/native-save-setting', { method: 'POST', body: { enabled: !form.nativeSave } })
-  if (data.success === false) throw new Error(data.error)
-  form.nativeSave = Boolean(data.enabled)
-  app.notify('原生保存设置已保存', 'success')
+  saving.value = 'native'
+  try {
+    const data = await request('/native-save-setting', { method: 'POST', body: { enabled: !form.nativeSave } })
+    if (data.success !== true || typeof data.enabled !== 'boolean') throw new Error('Setting not saved')
+    form.nativeSave = data.enabled
+    app.notify('原生保存设置已保存', 'success')
+  } catch { app.notify('原生保存设置未确认保存，请重新读取设置后再试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = ''; event.target.checked = form.nativeSave }
 }
 async function setProxy() {
-  const data = await request('/set-proxy-mode', { method: 'POST', body: { mode: form.proxyMode } })
-  if (data.success) app.notify('代理模式已保存，重启工具后生效', 'success')
+  if (saving.value) return
+  saving.value = 'proxy'
+  try {
+    const data = await request('/set-proxy-mode', { method: 'POST', body: { mode: form.proxyMode } })
+    if (data.success !== true) throw new Error('Proxy mode not saved')
+    app.notify('代理模式已保存，重启工具后生效', 'success')
+  } catch { app.notify('代理模式未确认保存，当前选择已保留，请重试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = '' }
 }
 async function exportLogs() {
-  const data = await request('/export-logs')
-  app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success')
+  try {
+    const data = await request('/export-logs')
+    if (data.success !== true) throw new Error('Export not completed')
+    app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success')
+  } catch { app.notify('诊断日志导出失败，请检查工具日志目录是否可写后重试', 'error') }
 }
+async function refreshAll() {
+  if (saving.value) return
+  saving.value = 'refresh'
+  try {
+    await app.loadGames()
+    const results = await app.refreshCurrent({ all: true, force: true })
+    await load()
+    if (results.some(result => result.status === 'rejected') || loadError.value) {
+      app.notify('部分数据未刷新，页面可能仍显示旧内容。请确认工具正在运行后重试；仍失败时请查看诊断日志', 'warning')
+    } else app.notify('数据已刷新', 'success')
+  } catch { app.notify('刷新数据失败，请确认工具正在运行后重试', 'error') }
+  finally { saving.value = '' }
+}
+
 function stopTerminal() {
   terminalGeneration += 1
   if (terminalTimer) clearTimeout(terminalTimer)
@@ -163,11 +211,12 @@ async function resetToolState() {
   if (!confirmed) return
   resetting.value = true
   try {
-    await request('/diagnostics/reset-state', { method: 'POST', body: { confirmed: true } })
+    const data = await request('/diagnostics/reset-state', { method: 'POST', body: { confirmed: true } })
+    if (data.success !== true) throw new Error('Reset not confirmed')
     app.notify('工具状态已清除，正在重启', 'warning')
   } catch (error) {
     resetting.value = false
-    app.notify(error?.message || '重置工具状态失败', 'error')
+    app.notify('无法确认工具是否已重置，请先检查工具是否正在重启，避免重复操作；详情见诊断日志', 'error')
   }
 }
 function setNews() {
@@ -208,22 +257,24 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
           <div :key="activeSection" class="settings-section-host">
             <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
             <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
+            <div v-else-if="loadError && activeSection !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
             <article v-else-if="activeSection === 'general'" class="settings-card glass">
-          <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div></header>
-          <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" @change="toggleScan" /></label>
-          <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord" @change="toggleNative" /></label>
+          <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div><button class="text-button" :disabled="Boolean(saving)" @click="load">重新读取</button></header>
+          <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" :disabled="Boolean(saving)" @change="toggleScan" /></label>
+          <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord || Boolean(saving)" @change="toggleNative" /></label>
+          <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>游戏内切换渠道服账号</strong><small>选择游戏和账号，随时开启或重新配置</small></span><button class="quiet-button" :disabled="switching.state.saving" @click="switching.openWizard">打开配置向导</button></div>
           <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><input v-model="form.newsVisible" type="checkbox" @change="setNews" /></label>
         </article>
         <article v-else-if="activeSection === 'network'" class="settings-card glass">
           <header><Network :size="20" /><div><h2>代理模式</h2><p>修改后通常需要重启工具。</p></div></header>
-          <label class="field"><span class="field-label-with-help">网络接管方式 <HelpTip text="全局代理使用系统代理接管相关请求；仅游戏进程将影响限制在游戏及登录组件；兼容模式使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。修改后需重启工具才能完整生效。" /></span><select v-model="form.proxyMode"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
-          <button class="primary wide" @click="setProxy">保存代理模式</button>
+          <label class="field"><span class="field-label-with-help">网络接管方式 <HelpTip text="全局代理使用系统代理接管相关请求；仅游戏进程将影响限制在游戏及登录组件；兼容模式使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。修改后需重启工具才能完整生效。" /></span><select v-model="form.proxyMode" :disabled="Boolean(saving)"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
+          <button class="primary wide" :disabled="Boolean(saving)" @click="setProxy">保存代理模式</button>
         </article>
         <article v-else class="settings-card diagnostics-panel">
           <header><FileText :size="20" /><div><h2>诊断工具</h2><p>查看实时输出或导出完整日志，方便定位运行问题。</p></div></header>
           <div class="diagnostics-actions">
             <button class="quiet-button" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
-            <button class="quiet-button" @click="app.loadGames().then(() => app.refreshCurrent({ all: true, force: true }))">刷新全部数据</button>
+            <button class="quiet-button" :disabled="Boolean(saving)" @click="refreshAll">刷新全部数据</button>
           </div>
 
           <section class="diagnostics-terminal" aria-label="工具实时输出">

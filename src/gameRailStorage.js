@@ -19,6 +19,11 @@ function normalizeTab(tab = {}) {
   }
 }
 
+function normalizeCurrentGame(value) {
+  if (!value || typeof value.game_id !== 'string' || !value.game_id) return null
+  return { game_id: value.game_id, distribution_id: String(value.distribution_id ?? '') }
+}
+
 export function mergeGameRailTabs(existing = [], incoming = []) {
   const result = []
   const seen = new Set()
@@ -39,7 +44,8 @@ export function readGameRailState(options = {}) {
     if (value?.schema_version !== GAME_RAIL_SCHEMA_VERSION) return { tabs: [], last_tab_key: '' }
     const tabs = mergeGameRailTabs([], Array.isArray(value.tabs) ? value.tabs : [])
     const lastTabKey = tabs.some(tab => tab.key === value.last_tab_key) ? value.last_tab_key : ''
-    return { tabs, last_tab_key: lastTabKey }
+    const currentGame = normalizeCurrentGame(value.current_game) || normalizeCurrentGame(tabs.find(tab => tab.key === lastTabKey))
+    return { tabs, last_tab_key: lastTabKey, current_game: currentGame }
   } catch {
     return { tabs: [], last_tab_key: '' }
   }
@@ -55,6 +61,7 @@ export function writeGameRailState(tabs, lastTabKey = '', options = {}) {
       schema_version: GAME_RAIL_SCHEMA_VERSION,
       tabs: normalized,
       last_tab_key: remembered,
+      current_game: normalizeCurrentGame(options.currentGame) || normalizeCurrentGame(normalized.find(tab => tab.key === remembered)),
     }))
     return true
   } catch {

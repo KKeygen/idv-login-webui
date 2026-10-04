@@ -22,7 +22,9 @@ export async function request(path, { query, body, method = body ? 'POST' : 'GET
     body: body ? JSON.stringify(body) : undefined,
   })
   let payload = null
-  try { payload = await response.json() } catch { payload = {} }
+  try { payload = await response.json() } catch {
+    if (response.ok) throw new ApiError('工具返回了无效数据，请重试', response.status)
+  }
   if (!response.ok) throw new ApiError(payload?.error || `HTTP ${response.status}`, response.status, payload)
   return payload
 }

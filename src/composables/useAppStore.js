@@ -17,10 +17,12 @@ const state = reactive({
   accounts: [], manualChannels: {}, defaultUuid: '', autoClose: false,
   connection: 'checking', updateRequired: false, notices: [], busy: '',
   nativeCapabilities: null,
+  backendVersion: '',
   launcherVisual: null,
   railLaunchers: [],
   railTabs: persistedRail.tabs,
   lastRailTabKey: persistedRail.last_tab_key,
+  rememberedGame: persistedRail.current_game || null,
 })
 
 const launcherRequests = new Map()
@@ -50,10 +52,30 @@ export function shortGameId(gameId = '') {
   return String(gameId).split('-').pop() || ''
 }
 
+export function gameTitle(game = {}, fallbackId = '') {
+  const id = game.game_id || game.short_game_id || fallbackId
+  const short = shortGameId(id)
+  const title = [game.launcher?.display_name, game.launcher?.app_name, game.display_name, game.app_name, game.name]
+    .find(value => typeof value === 'string' && value.trim() && value !== id && value !== short)
+  return title || (short ? `游戏（${short}）` : '游戏启动器')
+}
+
+function feverRank(game) { return ['fever', 'fever_display'].includes(game?.platform_type) ? 0 : 1 }
+
+function uniqueGames(games) {
+  const seen = new Set()
+  return [...games].sort((a, b) => feverRank(a) - feverRank(b)).filter(game => {
+    const id = shortGameId(game?.game_id || game?.short_game_id)
+    if (!id || seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
 export function normalizeGames(data = {}) {
-  const records = Array.isArray(data.games) ? data.games : []
-  const catalog = Array.isArray(data.catalog) ? data.catalog : []
-  const catalogAll = Array.isArray(data.catalog_all) ? data.catalog_all : catalog
+  const records = uniqueGames(Array.isArray(data.games) ? data.games : [])
+  const catalog = uniqueGames(Array.isArray(data.catalog) ? data.catalog : [])
+  const catalogAll = uniqueGames(Array.isArray(data.catalog_all) ? data.catalog_all : catalog)
   const merged = records.map(record => {
     const remote = catalogAll.find(item => cmpGameId(item.game_id, record.game_id)) || {}
     return {
@@ -63,7 +85,7 @@ export function normalizeGames(data = {}) {
     }
   })
   for (const item of catalog) if (!merged.some(existing => cmpGameId(existing.game_id, item.game_id))) merged.push(item)
-  return { records, catalog, merged }
+  return { records, catalog, merged: merged.sort((a, b) => feverRank(a) - feverRank(b)) }
 }
 
 export function isGameInstalled(game = {}) {
@@ -71,14 +93,19 @@ export function isGameInstalled(game = {}) {
 }
 
 function persistRail() {
-  writeGameRailState(state.railTabs, state.lastRailTabKey)
+  writeGameRailState(state.railTabs, state.lastRailTabKey, { currentGame: state.rememberedGame })
+}
+
+function rememberCurrentGame() {
+  if (!state.gameId) return
+  state.rememberedGame = { game_id: state.gameId, distribution_id: state.distributionId }
+  persistRail()
 }
 
 function rememberRailTab(gameId, distributionId) {
   const key = gameRailTabKey(gameId, distributionId)
-  if (!state.railTabs.some(tab => tab.key === key)) return
-  state.lastRailTabKey = key
-  persistRail()
+  if (state.railTabs.some(tab => tab.key === key)) state.lastRailTabKey = key
+  rememberCurrentGame()
 }
 
 function rememberRailLauncher(data) {
@@ -150,12 +177,12 @@ function hydrateVisualCache() {
     state.games = normalized.merged
     state.catalog = normalized.catalog
     preloadLauncherImages(state.games, { limit: 8 })
+  }
+  if (!state.gameId) {
     const queryId = typeof location === 'undefined' ? '' : new URLSearchParams(location.search).get('game_id') || ''
-    const remembered = state.railTabs.find(tab => tab.key === state.lastRailTabKey)
-    state.gameId = queryId || remembered?.game_id || normalized.merged[0]?.game_id || ''
-    if (!queryId && remembered && cmpGameId(remembered.game_id, state.gameId)) {
-      state.distributionId = String(remembered.distribution_id)
-    }
+    const remembered = state.rememberedGame || state.railTabs.find(tab => tab.key === state.lastRailTabKey)
+    state.gameId = queryId || remembered?.game_id || state.games[0]?.game_id || ''
+    if (remembered && cmpGameId(remembered.game_id, state.gameId)) state.distributionId = String(remembered.distribution_id ?? '')
   }
   if (state.gameId) {
     const current = state.games.find(item => cmpGameId(item.game_id, state.gameId))
@@ -184,6 +211,7 @@ async function loadGames() {
     try {
       const health = await request('/health')
       if (health?.status !== 'ok') throw new Error('启动器后端尚未就绪')
+      state.backendVersion = typeof health.version === 'string' ? health.version : ''
       const data = await request('/list-games')
       if (data?.success === false) throw new Error(data.error || '获取游戏列表失败')
       state.connection = 'connected'
@@ -194,17 +222,16 @@ async function loadGames() {
       pruneUninstalledRailGames()
       cacheCatalog(data)
       const queryId = new URLSearchParams(location.search).get('game_id') || ''
-      const remembered = rememberedGameRailTab(state.railTabs, state.lastRailTabKey, state.games)
-      const selectedGameExists = state.games.some(game => cmpGameId(game.game_id, state.gameId))
-      if (!state.gameId || (!queryId && !selectedGameExists)) {
+      const remembered = state.rememberedGame || rememberedGameRailTab(state.railTabs, state.lastRailTabKey, state.games)
+      if (!state.gameId) {
         state.gameId = queryId || remembered?.game_id || normalized.records[0]?.game_id || normalized.merged[0]?.game_id || ''
+        if (remembered && cmpGameId(remembered.game_id, state.gameId)) state.distributionId = String(remembered.distribution_id ?? '')
       }
-      if (!queryId && remembered && cmpGameId(remembered.game_id, state.gameId)) {
-        state.distributionId = String(remembered.distribution_id)
-      }
+      rememberCurrentGame()
       return data
     } catch (error) {
       state.connection = 'disconnected'
+      state.backendVersion = ''
       throw error
     }
   })().finally(() => { gamesLoadRequest = null })
@@ -230,6 +257,7 @@ async function selectGame(gameId, { distributionId = '', view = state.view } = {
   if (APP_VIEWS.has(view)) state.view = view
   state.gameId = gameId
   state.distributionId = String(distributionId ?? '')
+  rememberCurrentGame()
   state.launcher = cachedLauncher(gameId)
   state.launcherVisual = readLauncherVisual(gameId)
   const cachedAccounts = accountDataByGame.get(gameCacheKey(gameId))
@@ -277,14 +305,18 @@ function applyAccountData(data = {}) {
   state.autoClose = Boolean(data.autoClose)
 }
 
-async function loadAccounts({ force = false } = {}) {
-  if (!state.gameId) { state.accounts = []; return }
-  const gameId = state.gameId
+async function loadAccounts({ force = false, gameId = state.gameId } = {}) {
+  if (!gameId) { state.accounts = []; return }
   const key = gameCacheKey(gameId)
   const cached = accountDataByGame.get(key)
-  if (cached) applyAccountData(cached)
+  if (force && cached) cached.loadedAt = 0
+  if (cached && cmpGameId(state.gameId, gameId)) applyAccountData(cached)
   if (!force && cached && Date.now() - cached.loadedAt < ACCOUNT_CACHE_TTL) return cached
-  if (accountRequests.has(key)) return accountRequests.get(key)
+  if (accountRequests.has(key)) {
+    if (!force) return accountRequests.get(key)
+    await accountRequests.get(key).catch(() => {})
+    return loadAccounts({ force: true, gameId })
+  }
 
   const pending = Promise.allSettled([
     request('/list', { query: { game_id: gameId } }),
@@ -292,18 +324,21 @@ async function loadAccounts({ force = false } = {}) {
     request('/defaultChannel', { query: { game_id: shortGameId(gameId) } }),
     request('/get-auto-close-state', { query: { game_id: gameId } }),
   ]).then(([list, manual, def, close]) => {
+    if (list.status !== 'fulfilled' || (!Array.isArray(list.value) && !Array.isArray(list.value?.channels))) {
+      throw new Error('账号列表读取失败，请确认工具正在运行后重试')
+    }
     const previous = accountDataByGame.get(key) || {}
+    const incomplete = [manual, def, close].some(result => result.status === 'rejected' || !result.value || result.value.success === false)
     const data = {
-      accounts: list.status === 'fulfilled'
-        ? (Array.isArray(list.value) ? list.value : (list.value.channels || []))
-        : (previous.accounts || []),
-      manualChannels: manual.status === 'fulfilled' ? (manual.value || {}) : (previous.manualChannels || {}),
-      defaultUuid: def.status === 'fulfilled' ? (def.value.uuid || '') : (previous.defaultUuid || ''),
-      autoClose: close.status === 'fulfilled' && 'state' in close.value ? Boolean(close.value.state) : Boolean(previous.autoClose),
-      loadedAt: Date.now(),
+      accounts: Array.isArray(list.value) ? list.value : list.value.channels,
+      manualChannels: manual.status === 'fulfilled' && manual.value?.success !== false ? (manual.value || {}) : (previous.manualChannels || {}),
+      defaultUuid: def.status === 'fulfilled' && def.value?.success !== false ? (def.value?.uuid || '') : (previous.defaultUuid || ''),
+      autoClose: close.status === 'fulfilled' && close.value && 'state' in close.value ? Boolean(close.value.state) : Boolean(previous.autoClose),
+      loadedAt: incomplete ? 0 : Date.now(),
     }
     accountDataByGame.set(key, data)
     if (cmpGameId(state.gameId, gameId)) applyAccountData(data)
+    if (incomplete) throw new Error('账号列表已读取，但部分账号设置刷新失败，请重试')
     return data
   }).finally(() => accountRequests.delete(key))
   accountRequests.set(key, pending)

@@ -22,7 +22,7 @@ const distributions = computed(() => app.state.launcher?.distributions || [])
 const distribution = computed(() => distributions.value.find(
   item => String(item.distribution_id) === String(app.state.distributionId)
 ) || distributions.value[0] || null)
-const installation = computed(() => distribution.value?.installation || null)
+const installation = computed(() => distribution.value?.installation || (!distribution.value ? app.state.launcher?.game?.installation : null) || null)
 const installationId = computed(() => installation.value?.installation_id || '')
 const distributionId = computed(() => distribution.value?.distribution_id ?? -1)
 const installed = computed(() => Boolean(installation.value?.installed))
@@ -31,6 +31,8 @@ const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
 const gameIcon = computed(() => resourceUrl(
   distribution.value?.launcher?.icon
   || distribution.value?.launcher?.logo
+  || app.state.launcher?.launcher?.icon
+  || app.state.launcher?.launcher?.logo
   || app.currentGame.value?.launcher?.icon
   || app.currentGame.value?.icon
   || ''
@@ -99,7 +101,7 @@ async function load() {
       optional('/get-game-auto-start', { query }, 'autoStart'),
       optional('/get-auto-close-state', { query }, 'autoClose'),
       optional('/get-login-delay', { query }, 'loginDelay'),
-      optional('/fever-bridge', { query }, 'feverBridge'),
+      canUseFeverBridge.value ? optional('/fever-bridge', { query }, 'feverBridge') : Promise.resolve(null),
     ])
     if (generation !== loadGeneration || !scopeMatches(scope)) return
     if (start.status === 'fulfilled' && start.value && 'enabled' in start.value) form.autoStart = Boolean(start.value.enabled)
@@ -207,7 +209,7 @@ async function createShortcut() {
           <button v-if="installed && distribution?.can_update" class="quiet-button accent" @click="emit('update')"><Download :size="15" />{{ needsUpdate ? '更新游戏' : '修复游戏' }}</button>
           <button v-if="installed" class="quiet-button" @click="createShortcut"><Link :size="15" />创建桌面快捷方式</button>
           <button v-if="canImportFever" class="quiet-button" @click="emit('import-fever')"><Download :size="15" />从发烧平台导入</button>
-          <button class="quiet-button" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>
+          <button v-if="app.state.launcher?.platform_type === 'fever'" class="quiet-button" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>
         </div>
         </section>
 

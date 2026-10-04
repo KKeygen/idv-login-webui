@@ -1,17 +1,32 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Home, Users, Settings, Cloud, WifiOff, CircleHelp } from '@lucide/vue'
 import { openExternal, request, resourceUrl } from './api'
 import { installMotionSystem } from './motion'
-import { cmpGameId, useAppStore } from './composables/useAppStore'
+import { cmpGameId, gameTitle, useAppStore } from './composables/useAppStore'
 import GameRail from './components/GameRail.vue'
 import LauncherView from './components/LauncherView.vue'
 import AccountsView from './components/AccountsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import CloudSyncView from './components/CloudSyncView.vue'
 import AppDialogHost from './components/AppDialogHost.vue'
+import AccountSwitchingWizard from './components/AccountSwitchingWizard.vue'
+import { useAccountSwitching } from './composables/useAccountSwitching'
 
 const app = useAppStore()
+const switching = useAccountSwitching()
+let switchingRouteHandled = false
+watch(() => app.state.backendVersion, () => {
+  if (!switching.supported.value) { switching.reset(); return }
+  if (!switchingRouteHandled && new URLSearchParams(location.search).get('view') === 'account-switching') {
+    switchingRouteHandled = true
+    switching.openWizard()
+    // Consume this one-shot route; dismissal and refresh return to normal UI.
+    const url = new URL(location.href)
+    url.searchParams.delete('view')
+    history.replaceState({}, '', url)
+  }
+})
 const gameRailOpen = ref(false)
 const gameCatalogOpen = ref(false)
 const viewComponents = { launcher: LauncherView, accounts: AccountsView, settings: SettingsView, cloud: CloudSyncView }
@@ -23,6 +38,8 @@ const activeDistribution = computed(() => activeRailLauncher.value?.distribution
 const activeGameIcon = computed(() => resourceUrl(
   activeDistribution.value?.launcher?.icon
   || activeDistribution.value?.launcher?.logo
+  || activeRailLauncher.value?.launcher?.icon
+  || activeRailLauncher.value?.launcher?.logo
   || app.currentGame.value?.launcher?.icon
   || app.currentGame.value?.icon
   || ''
@@ -30,20 +47,18 @@ const activeGameIcon = computed(() => resourceUrl(
 const activeGameBackground = computed(() => resourceUrl(
   activeDistribution.value?.launcher?.background_image
   || activeDistribution.value?.launcher?.main_image
+  || activeRailLauncher.value?.launcher?.background_image
+  || activeRailLauncher.value?.launcher?.main_image
   || app.state.launcherVisual?.background_image
   || app.state.launcherVisual?.main_image
   || app.currentGame.value?.launcher?.background_image
   || app.currentGame.value?.launcher?.main_image
   || ''
 ))
-const activeGameTitle = computed(() => (
-  activeDistribution.value?.launcher?.display_name
-  || activeDistribution.value?.launcher?.app_name
-  || app.currentGame.value?.launcher?.display_name
-  || app.currentGame.value?.name
-  || app.state.gameId
-  || '游戏启动器'
-))
+const activeGameTitle = computed(() => gameTitle({
+  ...app.currentGame.value,
+  launcher: activeDistribution.value?.launcher || activeRailLauncher.value?.launcher || app.currentGame.value?.launcher,
+}, app.state.gameId))
 const nav = [
   { id: 'launcher', label: '游戏启动器', icon: Home },
   { id: 'accounts', label: '账号管理', icon: Users },
@@ -100,15 +115,19 @@ function setGameCatalogOpen(open) {
   else scheduleGameRailClose()
 }
 async function reconnect() {
-  await app.loadGames()
-  await app.ensureViewData()
+  try {
+    await app.loadGames()
+    await app.ensureViewData(app.state.view, { force: true })
+  } catch { app.notify('重新连接或读取页面数据失败，请确认工具正在运行后重试', 'error') }
 }
 onMounted(async () => {
   motionCleanup = installMotionSystem(document)
   try {
     await Promise.all([app.loadGames(), app.loadNativeCapabilities()])
     await app.ensureViewData()
-  } catch {}
+  } catch {
+    if (app.state.connection === 'connected') app.notify('页面数据读取失败，请在应用设置的诊断页刷新全部数据；当前显示可能不完整', 'error')
+  }
   // Populate every installed game once per launcher process. Hovering the
   // current-game icon must remain a presentation-only operation.
   app.loadInstalledRail().catch(() => {})
@@ -174,6 +193,7 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
     <TransitionGroup name="toast-list" tag="div" class="toasts">
       <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>
     </TransitionGroup>
+    <AccountSwitchingWizard v-if="switching.supported.value" />
     <AppDialogHost />
   </main>
 </template>

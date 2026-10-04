@@ -1,13 +1,14 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Plus, X } from '@lucide/vue'
+import { Plus, Search, X } from '@lucide/vue'
 import { request, resourceUrl } from '../api'
-import { cmpGameId, isGameInstalled, useAppStore } from '../composables/useAppStore'
+import { cmpGameId, gameTitle, isGameInstalled, shortGameId, useAppStore } from '../composables/useAppStore'
 
 const app = useAppStore()
 defineProps({ open: Boolean })
 const emit = defineEmits(['pointer-enter', 'pointer-leave', 'catalog-change'])
 const catalogOpen = ref(false)
+const search = ref('')
 let dragCandidate = null
 const railItems = computed(() => app.state.railTabs.map(tab => {
   const game = app.state.games.find(item => cmpGameId(item.game_id, tab.game_id)) || { game_id: tab.game_id }
@@ -32,13 +33,14 @@ const catalogItems = computed(() => app.state.games.map(game => ({
   icon: iconOfGame(game),
   installed: isGameInstalled(game),
   active: cmpGameId(game.game_id, app.state.gameId),
-})))
+})).filter(item => {
+  const term = search.value.trim().toLocaleLowerCase()
+  return !term || `${item.title} ${item.game.game_id} ${shortGameId(item.game.game_id)}`.toLocaleLowerCase().includes(term)
+}))
 
 function launcherOf(game) { return game?.launcher || {} }
 function titleOf(game) {
-  const value = game || {}
-  const launcher = launcherOf(value)
-  return launcher.display_name || launcher.app_name || value.display_name || value.app_name || value.name || value.game_id || '游戏'
+  return gameTitle(game)
 }
 function iconOfDistribution(item, game) {
   return resourceUrl(item?.launcher?.icon || item?.launcher?.logo || launcherOf(game).icon || game?.icon || '')
@@ -100,9 +102,9 @@ function toggleWindowMaximize(event) {
         <span class="game-tab-icon"><img v-if="item.icon" :src="item.icon" alt="" width="40" height="40" decoding="async" /><span v-else>{{ item.fallback }}</span></span>
         <span class="game-tab-tooltip">{{ item.title }}</span>
       </button>
-      <button key="add-game" class="game-tab add-game-tab" aria-label="安装其他游戏" @click="openCatalog">
+      <button key="add-game" class="game-tab add-game-tab" aria-label="打开游戏库" @click="openCatalog">
         <span class="game-tab-icon"><Plus :size="21" /></span>
-        <span class="game-tab-tooltip">安装其他游戏</span>
+        <span class="game-tab-tooltip">游戏库</span>
       </button>
     </TransitionGroup>
 
@@ -110,12 +112,14 @@ function toggleWindowMaximize(event) {
       <Transition name="catalog-fade">
         <div v-if="catalogOpen" class="game-catalog-overlay" @click.self="closeCatalog">
           <section class="game-catalog-panel">
-            <header><div><small>游戏库</small><h2>安装或选择游戏</h2></div><button class="icon-button" title="关闭" @click="closeCatalog"><X :size="20" /></button></header>
+            <header><div><small>游戏库</small><h2>选择游戏</h2></div><button class="icon-button" title="关闭" @click="closeCatalog"><X :size="20" /></button></header>
+            <label class="game-catalog-search"><Search :size="18" /><input v-model="search" type="search" aria-label="搜索游戏名称或短 ID" placeholder="搜索游戏名称或短 ID" /><span>{{ catalogItems.length }} 个游戏</span></label>
+            <p v-if="!catalogItems.length" class="muted">没有找到匹配的游戏，请尝试其他名称或短 ID。</p>
             <TransitionGroup name="catalog-item" tag="div" class="game-catalog-grid">
               <button v-for="item in catalogItems" :key="item.key" class="game-catalog-card" :class="{ active: item.active }" @click="chooseGame(item.game.game_id)">
                 <img v-if="item.banner" :src="item.banner" alt="" width="320" height="145" loading="lazy" decoding="async" />
                 <div v-else class="catalog-card-placeholder"><img v-if="item.icon" :src="item.icon" alt="" width="70" height="70" loading="lazy" decoding="async" /></div>
-                <span><strong>{{ item.title }}</strong><small>{{ item.installed ? '已安装' : '未安装' }}</small></span>
+                <span><strong>{{ item.title }}</strong><small>{{ item.installed ? '已安装' : item.game.platform_type === 'native' ? '选择路径' : '未安装' }}</small></span>
               </button>
             </TransitionGroup>
           </section>

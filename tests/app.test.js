@@ -13,10 +13,11 @@ describe('game compatibility', () => {
   })
 
   it('merges dynamic catalog without overriding recorded games', () => {
-    const result = normalizeGames({ games: [{ game_id: 'full-g-h55', name: 'record' }], catalog: [{ game_id: 'g37' }], catalog_all: [{ game_id: 'h55', name: 'remote', launcher: { main_image: 'cover' } }, { game_id: 'g37' }] })
+    const result = normalizeGames({ games: [{ game_id: 'full-g-h55', name: 'record' }], catalog: [{ game_id: 'g37', platform_type: 'native' }, { game_id: 'full-g-g37', platform_type: 'native' }], catalog_all: [{ game_id: 'h55', platform_type: 'native', launcher: { main_image: 'native-cover' } }, { game_id: 'full-g-h55', name: 'remote', platform_type: 'fever', launcher: { main_image: 'cover' } }, { game_id: 'g37', platform_type: 'native' }] })
     expect(result.merged).toHaveLength(2)
     expect(result.merged[0].name).toBe('record')
     expect(result.merged[0].launcher.main_image).toBe('cover')
+    expect(result.merged[0].platform_type).toBe('fever')
   })
 })
 
@@ -51,9 +52,10 @@ describe('initial game rail state', () => {
       { game_id: 'ma75', distribution_id: 1 },
     ])
     const last = gameRailTabKey('ma75', 1)
-    expect(writeGameRailState(tabs, last, { storage })).toBe(true)
+    expect(writeGameRailState(tabs, last, { storage, currentGame: { game_id: 'full-g-niche', distribution_id: '' } })).toBe(true)
     const restored = readGameRailState({ storage })
     expect(restored.last_tab_key).toBe(last)
+    expect(restored.current_game).toEqual({ game_id: 'full-g-niche', distribution_id: '' })
     expect(rememberedGameRailTab(restored.tabs, restored.last_tab_key, [{ game_id: 'full-g-ma75' }])?.key).toBe(last)
   })
 })
