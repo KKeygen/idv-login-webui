@@ -8,7 +8,9 @@ IdentityV Login Helper 的 Vue 3 单页前端。它把原先单个 `index.html` 
 - 顶栏的每个游戏图标代表当前游戏的一个分发，切换后安装、更新和本地安装记录同步切换。
 - 新闻面板可以显示，也可在设置中隐藏；不统计游戏时间。
 - 源码按组件维护，生产构建仍输出一个包含 Vue runtime、业务 JavaScript 和 CSS 的自包含 `dist/index.html`。
-- 支持普通 HTTP(S) 页面及 `idvlogin://` Qt WebEngine 环境。外部图片通过 `idvlogin://cdn/`，外链通过 `idvlogin://open/` 交给宿主处理。
+- 支持普通 HTTP(S) 游戏页面、旧 `idvlogin://` 环境，以及无内嵌 WebView 宿主的虚拟 `https://idv-login.invalid` origin。
+- 虚拟 origin 的 `/_idv-login/*` 请求由宿主预注入 fetch 桥处理，未部署网站或开放 localhost API。外链交给原生处理器；图片直接走 HTTPS。旧 scheme 环境仍保留 CDN/open 适配。
+- 拖动/最大化等宿主能力按后端声明启用；独立浏览器使用浏览器原生标题栏，不模拟 frameless 窗口。
 - 新字段在读取前进行能力判断。新接口返回 404 时保持页面可用，并在右上角提示需要更新工具。
 
 ## 开发与构建
@@ -26,10 +28,14 @@ npm run build:standalone
 
 构建完成后只需部署 `dist/index.html`。它不依赖外部 JavaScript、CSS 或字体文件。
 
-`main` 分支的测试和单文件构建成功后，GitHub Actions 会把
-`dist/index.html` 自动提交到 `KKeygen/idv-login` 的
-`assets/index.html`。跨仓库写入使用只绑定目标仓库的 Deploy Key；Pull
-Request 只执行测试，不部署。
+本分支为 `fever` 配套前端。既有工作流在 push / PR 执行测试和单文件构建，
+只有 `fever` 分支非 PR 的提交会把 `dist/index.html` 编码到 `KKeygen/idv-login`
+的 `assets/cloudRes.json` 字段 `login_base64_page_fever`，并更新 `lastModified`。
+跨仓库写入使用既有 Deploy Key。特性分支和 PR 不部署，不需要手工提交 `dist`。
+
+无内嵌 WebView 后端与此变更配套：先合入前端并等待原有部署，再合后端。
+API 字段、任务轮询、游戏 HTTP 环境及旧版宿主保持兼容；仅外链识别、视觉缓存
+和标题栏能力使用新宿主声明。
 
 ## 组件结构
 

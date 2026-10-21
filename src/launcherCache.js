@@ -7,7 +7,7 @@ const MAX_RETAINED_IMAGES = 24
 
 function isLocalFrontend(locationLike = globalThis.location) {
   const hostname = String(locationLike?.hostname || '').toLowerCase()
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  return (locationLike?.protocol === 'https:' && hostname === 'idv-login.invalid') || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
 }
 
 function storageFor(locationLike = globalThis.location, storage = globalThis.localStorage) {
