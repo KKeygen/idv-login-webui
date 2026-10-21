@@ -61,7 +61,8 @@ export function openExternal(url) {
 
   if (
     window.location.protocol === 'idvlogin:' ||
-    window.location.hostname === 'localhost'
+    window.location.hostname === 'localhost' ||
+    (window.location.protocol === 'https:' && window.location.hostname === 'idv-login.invalid')
   ) {
     request('/open-external-url', {
       query: { url },

@@ -90,7 +90,7 @@ function isInteractiveTarget(target) {
   return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, [role="button"]'))
 }
 function prepareWindowDrag(event) {
-  if (event.button !== 0 || isInteractiveTarget(event.target)) return
+  if (!app.state.nativeCapabilities?.window_drag || event.button !== 0 || isInteractiveTarget(event.target)) return
   dragCandidate = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
   event.currentTarget?.setPointerCapture?.(event.pointerId)
 }
@@ -106,7 +106,7 @@ function cancelWindowDrag(event) {
 }
 function toggleWindowMaximize(event) {
   dragCandidate = null
-  if (isInteractiveTarget(event.target)) return
+  if (!app.state.nativeCapabilities?.window_toggle_maximize || isInteractiveTarget(event.target)) return
   request('/native/window-toggle-maximize', { method: 'POST' }).catch(() => {})
 }
 function setGameCatalogOpen(open) {
