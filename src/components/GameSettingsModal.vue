@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Download, FileText, FolderOpen, Link, Save, Trash2 } from '@lucide/vue'
 import { ApiError, request, resourceUrl } from '../api'
+import { supportsNextFeverFeatures } from '../featureVersions'
 import { cmpGameId, useAppStore } from '../composables/useAppStore'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
@@ -28,6 +29,10 @@ const distributionId = computed(() => distribution.value?.distribution_id ?? -1)
 const installed = computed(() => Boolean(installation.value?.installed))
 const canImportFever = computed(() => Boolean(distribution.value?.can_import_fever))
 const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
+const canRepairMissing = computed(() => Boolean(
+  supportsNextFeverFeatures(app.state.backendVersion) && installationId.value
+  && !installed.value && distribution.value?.can_update
+))
 const gameIcon = computed(() => resourceUrl(
   distribution.value?.launcher?.icon
   || distribution.value?.launcher?.logo
@@ -195,7 +200,7 @@ async function createShortcut() {
             <img v-if="gameIcon" :src="gameIcon" alt="" />
             <span v-else>{{ title.slice(0, 1) }}</span>
           </span>
-          <div><h2>{{ title }}</h2><p>{{ installed ? (needsUpdate ? '已有可用更新' : '游戏已安装') : '尚未安装' }}</p></div>
+          <div><h2>{{ title }}</h2><p>{{ installed ? (needsUpdate ? '已有可用更新' : '游戏已安装') : canRepairMissing ? '游戏文件缺失，可修复' : '尚未安装' }}</p></div>
           <button v-if="installed" class="quiet-button danger" @click="emit('remove')"><Trash2 :size="15" />移除记录</button>
         </div>
 
@@ -206,7 +211,7 @@ async function createShortcut() {
         </div>
 
         <div class="game-settings-actions">
-          <button v-if="installed && distribution?.can_update" class="quiet-button accent" @click="emit('update')"><Download :size="15" />{{ needsUpdate ? '更新游戏' : '修复游戏' }}</button>
+          <button v-if="(installed || canRepairMissing) && distribution?.can_update" class="quiet-button accent" @click="emit('update')"><Download :size="15" />{{ canRepairMissing || !needsUpdate ? '修复游戏' : '更新游戏' }}</button>
           <button v-if="installed" class="quiet-button" @click="createShortcut"><Link :size="15" />创建桌面快捷方式</button>
           <button v-if="canImportFever" class="quiet-button" @click="emit('import-fever')"><Download :size="15" />从发烧平台导入</button>
           <button v-if="app.state.launcher?.platform_type === 'fever'" class="quiet-button" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>

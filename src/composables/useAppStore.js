@@ -164,10 +164,15 @@ function requestLauncher(gameId, { force = false } = {}) {
   return pending
 }
 
-async function loadInstalledRail() {
-  const missing = state.games.filter(game => isGameInstalled(game) && !cachedLauncher(game.game_id))
+async function loadInstalledRail({ forceGameIds = [] } = {}) {
+  const forceGame = game => forceGameIds.some(id => cmpGameId(id, game.game_id))
+  const missing = state.games.filter(game => isGameInstalled(game) && (!cachedLauncher(game.game_id) || forceGame(game)))
   if (!missing.length) return []
-  return Promise.allSettled(missing.map(game => requestLauncher(game.game_id)))
+  return Promise.allSettled(missing.map(async game => {
+    const force = forceGame(game)
+    if (force) await launcherRequests.get(gameCacheKey(game.game_id))?.catch(() => {})
+    return requestLauncher(game.game_id, { force })
+  }))
 }
 
 function hydrateVisualCache() {

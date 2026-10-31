@@ -4,6 +4,7 @@ import { Clock3, Download, FolderOpen, PackageOpen, Pause, Play, Settings, Newsp
 import { openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { supportsNextFeverFeatures } from '../featureVersions'
+import { useGameImport } from '../composables/useGameImport'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -11,6 +12,7 @@ import InstallGameModal from './InstallGameModal.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
+const importing = useGameImport()
 const distributionId = computed({ get: () => app.state.distributionId, set: value => app.setDistribution(value) })
 const showNews = ref(localStorage.getItem('idv.news.visible') !== 'false')
 const gameSettingsOpen = ref(false)
@@ -39,6 +41,10 @@ const installation = computed(() => distribution.value?.installation || (!distri
 const installationId = computed(() => installation.value?.installation_id || '')
 const installed = computed(() => Boolean(installation.value?.installed))
 const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
+const canRepairMissing = computed(() => Boolean(
+  supportsNextFeverFeatures(app.state.backendVersion) && installationId.value
+  && !installed.value && distribution.value?.can_update
+))
 const fever = computed(() => distribution.value?.fever || {})
 const canImportFever = computed(() => Boolean(distribution.value?.can_import_fever))
 const installRequirements = computed(() => distribution.value?.install_requirements || {})
@@ -319,6 +325,7 @@ async function install() {
 }
 async function locate() {
   const scope = captureSelection()
+  if (importing.supported.value) return importing.openWizard({ source: 'manual', gameId: scope.gameId })
   const picked = await app.guarded('pick-game', async () => {
     const pending = await request('/native/pick-executable', { method: 'POST', body: { title: `定位${scope.title}启动程序` } })
     return resolveTask(pending, '/native/task-status')
@@ -335,7 +342,7 @@ async function locate() {
   await refreshIfCurrent(scope)
 }
 async function update() {
-  if (!installed.value || !distribution.value?.can_update) return
+  if ((!installed.value && !canRepairMissing.value) || !distribution.value?.can_update) return
   const scope = captureSelection()
   gameSettingsOpen.value = false
   await app.guarded('update', async () => {
@@ -379,6 +386,10 @@ async function remove() {
 async function importFever() {
   const scope = captureSelection()
   const feverSnapshot = { ...fever.value }
+  if (importing.supported.value) return importing.openWizard({
+    source: 'fever', gameId: scope.gameId,
+    distributionId: feverSnapshot.distribution_id ?? scope.distributionId, path: feverSnapshot.path || '',
+  })
   await app.mutate('fever', '/launcher-import-fever', {
     query: {
       game_id: scope.gameId,
@@ -394,6 +405,7 @@ async function importFever() {
 }
 async function importFeverList() {
   const scope = captureSelection()
+  if (importing.supported.value) return importing.openWizard({ source: 'fever', gameId: scope.gameId })
   const data = await request('/fever-games')
   if (!selectionMatches(scope)) {
     app.notify('已切换游戏，本次导入未继续', 'warning')
@@ -532,7 +544,7 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
             <span class="download-control-label"><Play v-if="downloadPaused" :size="18" /><Pause v-else :size="18" />{{ controlPending === 'pause' ? '正在暂停' : controlPending === 'resume' ? '正在恢复' : downloadPaused ? '继续下载' : '暂停' }}</span>
           </button>
           <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="18" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
-          <button v-else-if="installed && needsUpdate" class="primary large" :disabled="Boolean(app.state.busy)" @click="update"><MotionProgressRing v-if="app.state.busy === 'update'" :size="18" aria-label="正在更新游戏" /><Download v-else />{{ app.state.busy === 'update' ? '正在更新…' : '更新游戏' }}</button>
+          <button v-else-if="(installed && needsUpdate) || canRepairMissing" class="primary large" :disabled="Boolean(app.state.busy)" @click="update"><MotionProgressRing v-if="app.state.busy === 'update'" :size="18" :aria-label="canRepairMissing ? '正在修复游戏' : '正在更新游戏'" /><Download v-else />{{ app.state.busy === 'update' ? (canRepairMissing ? '正在修复…' : '正在更新…') : canRepairMissing ? '修复游戏' : '更新游戏' }}</button>
           <button v-else-if="installed" class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><MotionProgressRing v-if="app.state.busy === 'start'" :size="18" aria-label="正在启动游戏" /><Play v-else />{{ app.state.busy === 'start' ? '正在启动…' : '开始游戏' }}</button>
           <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="18" aria-label="正在导入游戏" /><Download v-else />{{ app.state.busy === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
           <button v-else-if="distribution?.can_download" class="primary large" :disabled="Boolean(app.state.busy)" @click="openInstall"><Download />下载游戏</button>

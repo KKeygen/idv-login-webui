@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Home, Users, Settings, Cloud, WifiOff, CircleHelp } from '@lucide/vue'
+import { Home, Users, Settings, Cloud, WifiOff, CircleHelp, FolderOpen } from '@lucide/vue'
 import { openExternal, request, resourceUrl } from './api'
 import { installMotionSystem } from './motion'
 import { cmpGameId, gameTitle, useAppStore } from './composables/useAppStore'
@@ -11,10 +11,25 @@ import SettingsView from './components/SettingsView.vue'
 import CloudSyncView from './components/CloudSyncView.vue'
 import AppDialogHost from './components/AppDialogHost.vue'
 import AccountSwitchingWizard from './components/AccountSwitchingWizard.vue'
+import ImportGameWizard from './components/ImportGameWizard.vue'
+import { useGameImport } from './composables/useGameImport'
 import { useAccountSwitching } from './composables/useAccountSwitching'
 
 const app = useAppStore()
 const switching = useAccountSwitching()
+const importing = useGameImport()
+let deferredImportPrompt = false
+let importWizardOpened = false
+watch(() => importing.state.open, open => {
+  if (open) { importWizardOpened = true; deferredImportPrompt = false }
+}, { flush: 'sync' })
+watch(() => switching.state.open, open => {
+  if (open || !deferredImportPrompt) return
+  deferredImportPrompt = false
+  // Only the bootstrap prompt is deferred. Never reopen after a user visit or
+  // cover a different dialog (the account wizard may be leaving right now).
+  if (!importWizardOpened && !document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openWizard()
+}, { flush: 'post' })
 let switchingRouteHandled = false
 watch(() => app.state.backendVersion, () => {
   if (!switching.supported.value) { switching.reset(); return }
@@ -116,8 +131,9 @@ function setGameCatalogOpen(open) {
 }
 async function reconnect() {
   try {
-    await app.loadGames()
+    await Promise.all([app.loadGames(), app.loadNativeCapabilities()])
     await app.ensureViewData(app.state.view, { force: true })
+    await importing.restore({ autoOpen: !switching.state.open })
   } catch { app.notify('重新连接或读取页面数据失败，请确认工具正在运行后重试', 'error') }
 }
 onMounted(async () => {
@@ -128,6 +144,11 @@ onMounted(async () => {
   } catch {
     if (app.state.connection === 'connected') app.notify('页面数据读取失败，请在应用设置的诊断页刷新全部数据；当前显示可能不完整', 'error')
   }
+  importing.restore().then(() => {
+    if (!importing.state.task || importWizardOpened) return
+    if (switching.state.open) deferredImportPrompt = true
+    else if (!document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openWizard()
+  }).catch(() => {})
   // Populate every installed game once per launcher process. Hovering the
   // current-game icon must remain a presentation-only operation.
   app.loadInstalledRail().catch(() => {})
@@ -135,7 +156,7 @@ onMounted(async () => {
     if (document.visibilityState === 'visible') app.loadGames().catch(() => {})
   }, 10_000)
 })
-onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer); motionCleanup() })
+onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer); importing.dispose(); motionCleanup() })
 </script>
 
 <template>
@@ -150,6 +171,7 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
           <component :is="item.icon" :size="21" /><span>{{ item.label }}</span>
         </button>
       </nav>
+      <button v-if="importing.supported.value" class="nav-button import-game-nav" :title="importing.state.task || importing.state.uncertain ? '查看导入进度或结果' : '导入游戏'" @click="importing.openWizard()"><FolderOpen :size="21" /><span>{{ importing.state.task || importing.state.uncertain ? '导入进度' : '导入游戏' }}</span><i v-if="importing.pending.value" class="import-task-dot" aria-label="正在导入"></i></button>
       <button class="nav-button settings-bottom" :class="{ active: app.state.view === 'settings' }" title="设置" @click="app.setView('settings')"><Settings class="animated-settings-icon" :size="21" /></button>
     </aside>
 
@@ -194,6 +216,7 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
       <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>
     </TransitionGroup>
     <AccountSwitchingWizard v-if="switching.supported.value" />
+    <ImportGameWizard v-if="importing.supported.value" />
     <AppDialogHost />
   </main>
 </template>

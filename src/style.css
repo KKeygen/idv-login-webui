@@ -2892,3 +2892,18 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 
 /* Preserve the existing account-list inclusion status without quota controls. */
 .account-projection-state { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+/* Import tasks share the existing wizard's flat steps, tables and footer. */
+.game-import-wizard .switching-option-note { margin: 12px 0; line-height: 1.7; }
+.game-import-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.game-import-sources .selected { color: var(--accent); border-color: var(--accent); }
+.game-import-game-label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.game-import-wizard select { width: 100%; margin-bottom: 16px; }
+.game-import-summary { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 14px 12px; margin: 20px 0; font-size: 13px; line-height: 1.7; }
+.game-import-summary dt { color: var(--muted); }
+.game-import-summary dd { margin: 0; overflow-wrap: anywhere; }
+.game-import-candidates, .game-import-results { max-height: 280px; }
+.game-import-status { display: flex; align-items: center; gap: 12px; margin: 22px 0; }
+.game-import-status h3 { margin: 0; }
+.import-game-nav { position: relative; }
+.import-task-dot { position: absolute; top: 8px; right: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
