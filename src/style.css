@@ -720,7 +720,8 @@ textarea {
 .download-collapsed-label > span,
 .download-collapsed-label small,
 .download-control-label,
-.download-elapsed {
+.download-elapsed,
+.download-remaining {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -760,7 +761,7 @@ textarea {
 .download-flyout header { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; }
 .download-flyout header strong { font-size: 18px; }
 .download-flyout header > span { color: rgba(255,255,255,.78); font-size: 12px; }
-.download-flyout .download-elapsed { margin-left: auto; }
+.download-flyout .download-elapsed, .download-flyout .download-remaining { margin-left: auto; }
 .download-flyout > small { display: block; margin-bottom: 10px; color: rgba(255,255,255,.58); font-size: 11px; }
 .download-stage-row {
   min-height: 33px;

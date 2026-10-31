@@ -3,6 +3,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, 
 import { Clock3, Download, FolderOpen, PackageOpen, Pause, Play, Settings, Newspaper, ShieldCheck } from '@lucide/vue'
 import { openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
+import { supportsNextFeverFeatures } from '../featureVersions'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -45,6 +46,19 @@ const requiredInstallBytes = computed(() => resolveRequiredInstallBytes(installR
 const downloadActive = computed(() => Boolean(activeTaskId.value && downloadStatus.value?.status === 'pending'))
 const downloadPaused = computed(() => Number(downloadStatus.value?.state) === 6 || String(downloadStatus.value?.phase || '') === '下载已暂停')
 const downloadPercent = computed(() => Math.max(0, Math.min(100, Number(downloadStatus.value?.progress_percent) || 0)))
+const downloadEtaSupported = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
+const downloadRemaining = computed(() => {
+  if (downloadPaused.value) return '已暂停'
+  const status = downloadStatus.value || {}
+  // Metrics describe the current phase, not the entire multi-stage install.
+  if (controlPending.value || status.requested_action || ![3, 4, 5].includes(Number(status.state))) return '预估中…'
+  const total = Number(status.total_bytes)
+  const percent = Number(status.progress_percent ?? NaN)
+  const rate = parseDownloadRate(status.rate)
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(percent) || percent < 0 || percent >= 100 || !rate) return '预估中…'
+  const seconds = Math.ceil(total * (1 - percent / 100) / rate)
+  return Number.isFinite(seconds) ? `预计剩余 ${formatDuration(seconds * 1000)}` : '预估中…'
+})
 const downloadElapsed = computed(() => {
   const startedAt = Number(downloadStatus.value?.created_at) * 1000
   return formatDuration(startedAt ? Math.max(0, now.value - startedAt) : 0)
@@ -162,11 +176,12 @@ function stopClock() {
 }
 function syncClock() {
   stopClock()
-  if (!viewActive || !downloadActive.value || document.visibilityState === 'hidden') return
+  if (downloadEtaSupported.value || !viewActive || !downloadActive.value || document.visibilityState === 'hidden') return
   now.value = Date.now()
   clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
 }
 watch(downloadActive, syncClock, { immediate: true })
+watch(downloadEtaSupported, syncClock)
 onMounted(() => document.addEventListener('visibilitychange', syncClock))
 onActivated(() => { viewActive = true; syncClock() })
 onDeactivated(() => { viewActive = false; stopClock(); resetEasterEgg() })
@@ -404,6 +419,13 @@ async function importFeverFromSettings() { gameSettingsOpen.value = false; await
 async function importFeverListFromSettings() { gameSettingsOpen.value = false; await importFeverList() }
 function toggleNews() { showNews.value = !showNews.value; localStorage.setItem('idv.news.visible', String(showNews.value)) }
 function formatSize(bytes) { if (!bytes) return '0 B'; const i = Math.floor(Math.log(bytes) / Math.log(1024)); return `${(bytes / 1024 ** i).toFixed(1)} ${['B','KB','MB','GB','TB'][i]}` }
+function parseDownloadRate(value) {
+  // downloadIPC's HumanizeBytes uses powers of 1024 for KB/MB/... .
+  const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)\s*(B|[KMGTPE]i?B)\s*\/\s*s$/)
+  if (!match) return 0
+  const rate = Number(match[1]) * 1024 ** ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'].indexOf(match[2].replace('i', ''))
+  return Number.isFinite(rate) && rate > 0 ? rate : 0
+}
 function formatDuration(milliseconds) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000))
   const hours = Math.floor(seconds / 3600)
@@ -488,7 +510,8 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
           <header>
             <strong>{{ downloadPaused ? '已暂停' : '下载中' }}</strong>
             <span>{{ downloadPercent.toFixed(1) }}%</span>
-            <span class="download-elapsed"><Clock3 :size="14" />{{ downloadElapsed }}</span>
+            <span v-if="downloadEtaSupported" class="download-remaining" title="当前阶段的预估剩余时间，不含后续阶段；随实时进度和速率更新"><Clock3 :size="14" />{{ downloadRemaining }}</span>
+            <span v-else class="download-elapsed"><Clock3 :size="14" />{{ downloadElapsed }}</span>
           </header>
           <small>{{ downloadPhaseLabel(downloadStatus?.phase, '正在处理游戏文件…') }}</small>
           <div class="download-stage-row"><Download :size="17" /><span>下载</span><b>{{ stageAmount(downloadStages.download) }}</b><em>{{ stageRate(downloadStages.download) }}</em></div>
@@ -505,7 +528,7 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
             aria-label="游戏下载进度"
           />
           <button v-if="downloadActive" class="primary large download-toggle" :disabled="Boolean(controlPending)" @click="toggleDownload">
-            <span class="download-collapsed-label"><span><Download :size="18" />下载中</span><small><Clock3 :size="13" />{{ downloadElapsed }}</small></span>
+            <span class="download-collapsed-label"><span><Download :size="18" />下载中</span><small><Clock3 :size="13" />{{ downloadEtaSupported ? downloadRemaining : downloadElapsed }}</small></span>
             <span class="download-control-label"><Play v-if="downloadPaused" :size="18" /><Pause v-else :size="18" />{{ controlPending === 'pause' ? '正在暂停' : controlPending === 'resume' ? '正在恢复' : downloadPaused ? '继续下载' : '暂停' }}</span>
           </button>
           <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="18" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
