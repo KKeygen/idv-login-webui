@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
 import { supportsAccountSwitching } from '../accountSwitching'
 import { versionAtLeast } from '../featureVersions'
 import { showConfirm, showPrompt } from '../dialogService'
+import { createAccountRelogin } from '../accountRelogin'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 import AccountSwitchingSettings from './AccountSwitchingSettings.vue'
@@ -21,6 +22,58 @@ const qrOpen = ref(false)
 const qrData = ref({ status: 'loading', qrcode_base64: '' })
 let qrTimer = null
 let qrGameId = ''
+
+const recovery = ref(null)
+const recoveryOpen = ref(false)
+const recoveryQuery = new URLSearchParams(window.location.search)
+const recoveryTaskId = recoveryQuery.get('relogin') || ''
+const recoveryGameId = recoveryQuery.get('game_id') || ''
+const recoveryFlow = createAccountRelogin({
+  taskId: recoveryTaskId, gameId: recoveryGameId, request,
+  onState(value) {
+    recovery.value = value
+    recoveryOpen.value = true
+    if (value.qr && value.status === 'pending' && !qrOpen.value) {
+      channel.value = value.channel
+      qrData.value = { status: 'loading', qrcode_base64: '' }
+      qrGameId = recoveryGameId
+      qrOpen.value = true
+      scheduleQrPoll(value.channel, recoveryGameId)
+    }
+  },
+  onError(error) {
+    if ([404, 409].includes(error.status)) {
+      recovery.value = { ...recovery.value, status: 'done', success: false, message: error.message }
+      recoveryOpen.value = true
+      stopQr()
+      qrOpen.value = false
+    }
+    app.notify(error.message || '重新登录状态暂时无法读取，正在重试', 'error')
+  },
+  onComplete(value) {
+    stopQr()
+    qrOpen.value = false
+    app.notify(value.message, value.success ? 'success' : 'warning')
+    refreshAccounts(recoveryGameId).catch(() => {})
+  },
+})
+function closeRecovery() {
+  recoveryFlow.cancel()
+  recoveryOpen.value = false
+  stopQr()
+  qrOpen.value = false
+  const url = new URL(window.location.href)
+  url.searchParams.delete('relogin')
+  history.replaceState({}, '', url)
+}
+onMounted(() => {
+  if (recoveryTaskId && recoveryGameId) {
+    recovery.value = { status: 'waiting', message: '正在准备此账号的重新登录…' }
+    recoveryOpen.value = true
+  }
+  recoveryFlow.start()
+  window.addEventListener('pagehide', leaveAccounts)
+})
 
 const qrReadyHints = { myapp:'请使用微信扫描二维码登录', bilibili_sdk:'请使用哔哩哔哩扫描二维码登录', huawei:'请使用手机浏览器扫描二维码登录' }
 const qrStatusText = computed(() => {
@@ -187,22 +240,24 @@ function scheduleQrPoll(target, gameId) {
   }, 1000)
 }
 async function pollQr(target, gameId) {
-  if (!qrScopeMatches(gameId)) return stopQr()
+  const taskId = recoveryOpen.value ? recoveryTaskId : undefined
+  const matches = () => qrScopeMatches(gameId) && taskId === (recoveryOpen.value ? recoveryTaskId : undefined)
+  if (!matches()) return
   try {
-    const data = await request('/qrcode', { query: { channel: target, game_id: gameId, _ts: Date.now() } })
-    if (!qrScopeMatches(gameId)) return
+    const data = await request('/qrcode', { query: { channel: target, game_id: gameId, task_id: taskId, _ts: Date.now() } })
+    if (!matches()) return
     qrData.value = data
   } catch {
-    if (qrScopeMatches(gameId)) qrData.value.status = 'retrying'
+    if (matches()) qrData.value.status = 'retrying'
   } finally {
-    if (qrScopeMatches(gameId) && !['failed', 'expired'].includes(qrData.value.status)) {
-      scheduleQrPoll(target, gameId)
-    } else {
-      stopQr()
+    if (matches()) {
+      if (!['failed', 'expired'].includes(qrData.value.status)) scheduleQrPoll(target, gameId)
+      else stopQr()
     }
   }
 }
 async function importAccount(loginMethod = '') {
+  if (recoveryOpen.value && recovery.value?.status !== 'done') return
   if (!channel.value) return app.notify('请先选择渠道', 'warning')
   if (!channels.value.some(item => item.channel === channel.value)) {
     channel.value = ''
@@ -249,10 +304,11 @@ async function importAccount(loginMethod = '') {
   }
 }
 async function biliWebLogin() { stopQr(); await request('/cancel-qr').catch(() => {}); await importAccount('web') }
-function closeQr() { stopQr(); qrOpen.value = false; qrGameId = ''; request('/cancel-qr').catch(() => {}) }
+function closeQr() { if (recoveryOpen.value) { closeRecovery(); return }; stopQr(); qrOpen.value = false; qrGameId = ''; request('/cancel-qr').catch(() => {}) }
 watch(() => app.state.gameId, (gameId, previous) => {
   selected.value = new Set()
   channel.value = ''
+  if (recoveryOpen.value && gameId && !cmpGameId(gameId, recoveryGameId)) closeRecovery()
   if (!cmpGameId(gameId, previous) && qrOpen.value) closeQr()
 })
 watch(accounts, list => {
@@ -264,8 +320,10 @@ watch(channels, list => {
   if (channel.value && !list.some(item => item.channel === channel.value)) channel.value = ''
 })
 function leaveAccounts() {
-  if (qrOpen.value) closeQr()
+  if (recoveryOpen.value) closeRecovery()
+  else if (qrOpen.value) closeQr()
   else stopQr()
+  window.removeEventListener('pagehide', leaveAccounts)
 }
 onBeforeUnmount(leaveAccounts)
 onDeactivated(leaveAccounts)
@@ -303,8 +361,9 @@ onDeactivated(leaveAccounts)
       </TransitionGroup>
     </section>
 
-    <ModalShell :open="qrOpen" title="扫码登录" @close="closeQr">
-      <div class="qr-panel"><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
+    <ModalShell :open="qrOpen || recoveryOpen" :title="recoveryOpen ? '账号重新登录' : '扫码登录'" @close="closeQr">
+      <div v-if="recoveryOpen && (!recovery?.qr || recovery.status === 'done')" class="qr-panel"><h3>{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="recovery?.status !== 'done'" :size="42" /><p>{{ recovery?.message }}</p><button class="ghost" @click="closeRecovery">{{ recovery?.status === 'done' ? '关闭' : '取消重新登录' }}</button></div>
+      <div v-else class="qr-panel"><h3 v-if="recoveryOpen">{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
     </ModalShell>
   </section>
 </template>

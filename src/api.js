@@ -10,7 +10,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(path, { query, body, method = body ? 'POST' : 'GET', signal } = {}) {
+export async function request(path, { query, body, method = body ? 'POST' : 'GET', signal, keepalive = false } = {}) {
   const url = new URL(`${API_ROOT}${path}`, window.location.href)
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value))
@@ -18,6 +18,7 @@ export async function request(path, { query, body, method = body ? 'POST' : 'GET
   const response = await fetch(url, {
     method,
     signal,
+    keepalive,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })

@@ -13,6 +13,7 @@ const moduleOrder = [
   'src/installRequirements.js',
   'src/motion.js',
   'src/accountSwitching.js',
+  'src/accountRelogin.js',
   'src/featureVersions.js',
   'src/composables/useAppStore.js',
   'src/composables/useAccountSwitching.js',
