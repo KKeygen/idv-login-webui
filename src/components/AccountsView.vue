@@ -4,6 +4,7 @@ import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, Circ
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
 import { supportsAccountSwitching } from '../accountSwitching'
+import { versionAtLeast } from '../featureVersions'
 import { showConfirm, showPrompt } from '../dialogService'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
@@ -46,14 +47,15 @@ const channels = computed(() => {
   const list = Array.isArray(data)
     ? data.map(item => { const key = item.channel || item.app_channel; return { ...item, channel: key, name: item.name || channelNames[key] || key } }).filter(item => item.channel)
     : Object.entries(data || {}).map(([channel, value]) => typeof value === 'object' ? { ...value, channel: value.channel || value.app_channel || channel, name: value.name || channel } : { channel, name: String(value || channel) })
-  if (list.some(item => item.channel === 'myapp') && !list.some(item => item.channel === 'myapp_qq')) {
-    list.push({ channel: 'myapp_qq', name: channelNames['myapp_qq'] || '应用宝（QQ）' })
+  const myapp = list.find(item => item.channel === 'myapp')
+  if (myapp && !list.some(item => item.channel === 'myapp_qq')) {
+    list.push({ channel: 'myapp_qq', name: channelNames['myapp_qq'] || '应用宝（QQ）', min_version: myapp.min_version })
   }
   // 每个游戏无条件补充九游渠道入口（后端 cloudRes 可能未收录，前端兜底保证可用）
   if (!list.some(item => item.channel === 'uc_platform')) {
     list.push({ channel: 'uc_platform', name: channelNames['uc_platform'] || '九游账号' })
   }
-  return list
+  return list.filter(item => item.min_version === undefined || versionAtLeast(app.state.backendVersion, item.min_version))
 })
 function formatTime(value) { return value ? new Date(Number(value) * 1000).toLocaleString() : '从未登录' }
 function toggle(uuid) { const next = new Set(selected.value); next.has(uuid) ? next.delete(uuid) : next.add(uuid); selected.value = next }
@@ -202,6 +204,10 @@ async function pollQr(target, gameId) {
 }
 async function importAccount(loginMethod = '') {
   if (!channel.value) return app.notify('请先选择渠道', 'warning')
+  if (!channels.value.some(item => item.channel === channel.value)) {
+    channel.value = ''
+    return app.notify('当前渠道不可用，请更新工具后重新选择', 'warning')
+  }
   const target = channel.value
   const gameId = app.state.gameId
   if (['myapp', 'bilibili_sdk', 'huawei'].includes(target) && !loginMethod) {
