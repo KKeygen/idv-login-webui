@@ -75,7 +75,7 @@ onMounted(() => {
   window.addEventListener('pagehide', leaveAccounts)
 })
 
-const qrReadyHints = { myapp:'请使用微信扫描二维码登录', bilibili_sdk:'请使用哔哩哔哩扫描二维码登录', huawei:'请使用手机浏览器扫描二维码登录' }
+const qrReadyHints = { myapp:'请使用微信扫描二维码登录', bilibili_sdk:'请使用哔哩哔哩扫描二维码登录', huawei:'请使用手机浏览器扫描二维码登录', honor_sdk:'请使用已登录荣耀账号的手机扫码确认' }
 const qrStatusText = computed(() => {
   const map = {
     idle:'等待开始登录… 如果长时间没有反应，可能是您的工具版本太旧，请更新',
@@ -265,7 +265,7 @@ async function importAccount(loginMethod = '') {
   }
   const target = channel.value
   const gameId = app.state.gameId
-  if (['myapp', 'bilibili_sdk', 'huawei'].includes(target) && !loginMethod) {
+  if (['myapp', 'bilibili_sdk', 'huawei', 'honor_sdk'].includes(target) && !loginMethod) {
     try {
       qrData.value = await request('/qrcode', { query: { channel: target, game_id: gameId, _ts: Date.now() } })
       if (!cmpGameId(gameId, app.state.gameId)) {
@@ -363,7 +363,7 @@ onDeactivated(leaveAccounts)
 
     <ModalShell :open="qrOpen || recoveryOpen" :title="recoveryOpen ? '账号重新登录' : '扫码登录'" @close="closeQr">
       <div v-if="recoveryOpen && (!recovery?.qr || recovery.status === 'done')" class="qr-panel"><h3>{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="recovery?.status !== 'done'" :size="42" /><p>{{ recovery?.message }}</p><button class="ghost" @click="closeRecovery">{{ recovery?.status === 'done' ? '关闭' : '取消重新登录' }}</button></div>
-      <div v-else class="qr-panel"><h3 v-if="recoveryOpen">{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei'" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
+      <div v-else class="qr-panel"><h3 v-if="recoveryOpen">{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei' || (!recoveryOpen && channel === 'honor_sdk')" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
     </ModalShell>
   </section>
 </template>
