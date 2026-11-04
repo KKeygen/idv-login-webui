@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
-import { ApiError, request } from '../api'
+import { ApiError, openExternal, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
 import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
+import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
 import HelpTip from './HelpTip.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
@@ -22,6 +23,10 @@ const form = reactive({
   scanSupported: true,
   nativeSave: false,
   nativeSupported: true,
+  debugEnabled: false,
+  debugSupported: false,
+  debugUploadEnabled: false,
+  debugUploadSupported: false,
   proxyMode: 'global',
   newsVisible: localStorage.getItem('idv.news.visible') !== 'false',
 })
@@ -33,6 +38,7 @@ const resetting = ref(false)
 const loading = ref(true)
 const loadError = ref('')
 const saving = ref('')
+const debugLoadError = ref(false)
 let terminalTimer = null
 let terminalGeneration = 0
 let viewActive = true
@@ -72,16 +78,29 @@ async function load() {
     const toolVersion = health && typeof health.version === 'string' ? health.version : ''
     // 6.3.0-stable 起原生保存成为默认行为，不再提供开关；旧后端健康检查没有 version 字段。
     form.nativeSupported = !(toolVersion && versionGreaterThan(toolVersion, '6.3.0-stable'))
-    const [scan, native, proxy] = await Promise.allSettled([
+    const [scan, native, proxy, debug] = await Promise.allSettled([
       optional('/scan-record-setting', {}, 'scanSupported'),
       form.nativeSupported
         ? optional('/native-save-setting', {}, 'nativeSupported')
         : Promise.resolve(null),
       request('/proxy-mode'),
+      request('/debug-mode').catch(error => {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }),
     ])
     if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
     if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
     if (proxy.status === 'fulfilled' && proxy.value && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+    form.debugSupported = debug.status === 'fulfilled' && debug.value !== null
+      && debug.value?.success === true && typeof debug.value.enabled === 'boolean'
+      && typeof debug.value.upload_enabled === 'boolean'
+    debugLoadError.value = debug.status === 'rejected' || (debug.value !== null && !form.debugSupported)
+    if (form.debugSupported) {
+      form.debugEnabled = debug.value.enabled
+      form.debugUploadEnabled = debug.value.upload_enabled
+      form.debugUploadSupported = Boolean(debug.value.upload_supported)
+    }
     if ([scan, native, proxy].some(result => result.status === 'rejected' || result.value?.success === false)
       || (form.scanSupported && typeof scan.value?.enabled !== 'boolean')
       || (form.nativeSupported && typeof native.value?.enabled !== 'boolean')
@@ -92,6 +111,25 @@ async function load() {
     loadError.value = '应用设置读取失败，请确认工具正在运行后重新读取'
   } finally {
     loading.value = false
+  }
+}
+async function toggleDebug(event) {
+  event.target.checked = form.debugEnabled
+  if (!form.debugSupported || saving.value) return
+  const enabled = !form.debugEnabled
+  saving.value = 'debug'
+  try {
+    const data = await changeDebugMode(enabled, { askConfirmation: showConfirm, request })
+    if (!data) return
+    form.debugEnabled = data.enabled
+    form.debugUploadEnabled = data.upload_enabled
+    form.debugUploadSupported = Boolean(data.upload_supported)
+    app.notify('设置已保存，工具正在重启', 'warning')
+  } catch {
+    app.notify('无法确认调试设置是否已保存，请先检查工具是否正在重启，再重新读取设置', 'error')
+  } finally {
+    saving.value = ''
+    event.target.checked = form.debugEnabled
   }
 }
 async function toggleScan(event) {
@@ -275,7 +313,14 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
           <div class="diagnostics-actions">
             <button class="quiet-button" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
             <button class="quiet-button" :disabled="Boolean(saving)" @click="refreshAll">刷新全部数据</button>
+            <button class="quiet-button" @click="openExternal(FEEDBACK_URL)">问题反馈</button>
           </div>
+
+          <label v-if="form.debugSupported" class="setting-row">
+            <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志经安全筛选后上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
+            <input type="checkbox" :checked="form.debugEnabled" :disabled="Boolean(saving)" @change="toggleDebug" />
+          </label>
+          <div v-else class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>
 
           <section class="diagnostics-terminal" aria-label="工具实时输出">
             <header>
