@@ -4,7 +4,7 @@ import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, Circ
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
 import { supportsAccountSwitching } from '../accountSwitching'
-import { versionAtLeast } from '../featureVersions'
+import { supportsNextFeverFeatures, versionAtLeast } from '../featureVersions'
 import { showConfirm, showPrompt } from '../dialogService'
 import { createAccountRelogin } from '../accountRelogin'
 import ModalShell from './ModalShell.vue'
@@ -12,6 +12,7 @@ import MotionProgressRing from './MotionProgressRing.vue'
 import AccountSwitchingSettings from './AccountSwitchingSettings.vue'
 
 const app = useAppStore()
+const supportsNewFeatures = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
 const listSupported = computed(() => supportsAccountSwitching(app.state.backendVersion))
 const channelNames = { xiaomi_app:'小米账号', huawei:'华为账号', nearme_vivo:'vivo账号', myapp:'应用宝（微信）', myapp_qq:'应用宝（QQ）', oppo:'OPPO账号', bilibili_sdk:'哔哩哔哩账号', honor_sdk:'荣耀账号', uc_platform:'九游账号' }
 const selected = ref(new Set())
@@ -256,7 +257,7 @@ async function pollQr(target, gameId) {
     }
   }
 }
-async function importAccount(loginMethod = '') {
+async function importAccount(loginMethod = '', honorQr = true) {
   if (recoveryOpen.value && recovery.value?.status !== 'done') return
   if (!channel.value) return app.notify('请先选择渠道', 'warning')
   if (!channels.value.some(item => item.channel === channel.value)) {
@@ -265,7 +266,7 @@ async function importAccount(loginMethod = '') {
   }
   const target = channel.value
   const gameId = app.state.gameId
-  if (['myapp', 'bilibili_sdk', 'huawei', 'honor_sdk'].includes(target) && !loginMethod) {
+  if ((['myapp', 'bilibili_sdk', 'huawei'].includes(target) || (target === 'honor_sdk' && honorQr)) && !loginMethod) {
     try {
       qrData.value = await request('/qrcode', { query: { channel: target, game_id: gameId, _ts: Date.now() } })
       if (!cmpGameId(gameId, app.state.gameId)) {
@@ -331,7 +332,7 @@ onDeactivated(leaveAccounts)
 
 <template>
   <section class="content-page accounts-page">
-    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount()"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
+    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount('', supportsNewFeatures)"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
     <AccountSwitchingSettings />
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
     <section v-else class="account-list">
@@ -361,7 +362,7 @@ onDeactivated(leaveAccounts)
       </TransitionGroup>
     </section>
 
-    <ModalShell :open="qrOpen || recoveryOpen" :title="recoveryOpen ? '账号重新登录' : '扫码登录'" @close="closeQr">
+    <ModalShell :open="recoveryOpen ? supportsNewFeatures : qrOpen" :title="recoveryOpen ? '账号重新登录' : '扫码登录'" @close="closeQr">
       <div v-if="recoveryOpen && (!recovery?.qr || recovery.status === 'done')" class="qr-panel"><h3>{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="recovery?.status !== 'done'" :size="42" /><p>{{ recovery?.message }}</p><button class="ghost" @click="closeRecovery">{{ recovery?.status === 'done' ? '关闭' : '取消重新登录' }}</button></div>
       <div v-else class="qr-panel"><h3 v-if="recoveryOpen">{{ recovery?.name || recovery?.uuid }}</h3><MotionProgressRing v-if="!qrData.qrcode_base64 && ['loading','scanned','verified','retrying'].includes(qrData.status)" :size="42" aria-label="正在处理扫码登录" /><QrCode v-else-if="!qrData.qrcode_base64" :size="64" /><img v-else :src="`data:image/png;base64,${qrData.qrcode_base64}`" alt="登录二维码" /><p>{{ qrStatusText }}</p><button v-if="channel === 'bilibili_sdk' || channel === 'huawei' || (!recoveryOpen && channel === 'honor_sdk')" class="ghost" @click="biliWebLogin">使用账号密码或手机号登录</button></div>
     </ModalShell>

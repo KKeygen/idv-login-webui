@@ -6,10 +6,12 @@ import { useAppStore } from '../composables/useAppStore'
 import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
 import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
+import { supportsNextFeverFeatures } from '../featureVersions'
 import HelpTip from './HelpTip.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
+const supportsNewFeatures = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
 const switching = useAccountSwitching()
 const activeSection = ref('general')
 const sections = [
@@ -313,14 +315,14 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
           <div class="diagnostics-actions">
             <button class="quiet-button" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
             <button class="quiet-button" :disabled="Boolean(saving)" @click="refreshAll">刷新全部数据</button>
-            <button class="quiet-button" @click="openExternal(FEEDBACK_URL)">问题反馈</button>
+            <button v-if="supportsNewFeatures" class="quiet-button" @click="openExternal(FEEDBACK_URL)">问题反馈</button>
           </div>
 
-          <label v-if="form.debugSupported" class="setting-row">
+          <label v-if="supportsNewFeatures && form.debugSupported" class="setting-row">
             <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志会上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
             <input type="checkbox" :checked="form.debugEnabled" :disabled="Boolean(saving)" @change="toggleDebug" />
           </label>
-          <div v-else class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>
+          <div v-else-if="supportsNewFeatures" class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>
 
           <section class="diagnostics-terminal" aria-label="工具实时输出">
             <header>
