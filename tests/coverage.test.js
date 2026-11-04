@@ -158,11 +158,16 @@ describe('legacy API surface', () => {
     expect(styles).not.toContain('@keyframes game-scene-in')
   })
 
-  it('deploys Fever UI only to the separate cloud field', () => {
+  it('stages the Fever UI field for cloud configuration review', () => {
     const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    const script = readFileSync(new URL('../scripts/stage-fever-ui.sh', import.meta.url), 'utf8')
     expect(workflow).toContain("github.ref == 'refs/heads/fever'")
-    expect(workflow).toContain("cloud['login_base64_page_fever']")
-    expect(workflow).toContain('git push origin HEAD:main')
+    expect(workflow).toContain('bash scripts/stage-fever-ui.sh target dist/index.html')
+    expect(script).toContain('push origin HEAD:refs/heads/cloud-config-staging')
+    expect(script).not.toMatch(/push\s+origin\s+HEAD:(?:refs\/heads\/)?main/)
+    expect([...script.matchAll(/cloud\['([^']+)'\]\s*=/g)].map(match => match[1]).sort())
+      .toEqual(['lastModified', 'login_base64_page_fever'])
+    expect(script).toContain("cloud.pop('_signature', None)")
     expect(workflow).not.toContain('cp dist/index.html target/assets/index.html')
   })
 })
