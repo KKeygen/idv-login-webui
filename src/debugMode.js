@@ -2,7 +2,7 @@ export const FEEDBACK_URL = 'https://idv-feedback.keygen.eu.org/index.php/82556'
 
 export function debugConfirmation(enabled) {
   return enabled
-    ? '开启调试模式后，工具将立即重启。正式版本会将经过安全筛选的运行日志上传到工具作者的平台，上传内容不包含账号登录凭据；开发版本仅开启本地调试，不上传。\n\n如果你不知道自己在做什么，请不要打开。'
+    ? '开启调试模式后，工具将立即重启。正式版本会将运行日志上传到工具作者的平台，上传内容不包含账号登录凭据；开发版本仅开启本地调试，不上传。\n\n如果你不知道自己在做什么，请不要打开。'
     : '关闭调试模式后，工具将立即重启，并停止上传调试日志。'
 }
 

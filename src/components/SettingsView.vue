@@ -317,7 +317,7 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
           </div>
 
           <label v-if="form.debugSupported" class="setting-row">
-            <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志经安全筛选后上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
+            <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志会上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
             <input type="checkbox" :checked="form.debugEnabled" :disabled="Boolean(saving)" @change="toggleDebug" />
           </label>
           <div v-else class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>

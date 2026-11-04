@@ -6,7 +6,7 @@ describe('debug mode consent', () => {
     const message = debugConfirmation(true)
     expect(message).toContain('重启')
     expect(message).toContain('正式版本')
-    expect(message).toContain('经过安全筛选的运行日志')
+    expect(message).toContain('运行日志上传到工具作者的平台')
     expect(message).toContain('不包含账号登录凭据')
     expect(message).toContain('开发版本仅开启本地调试，不上传')
     expect(message).toContain('如果你不知道自己在做什么，请不要打开')
