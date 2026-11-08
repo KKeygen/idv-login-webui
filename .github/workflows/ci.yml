@@ -28,7 +28,7 @@ jobs:
         run: test "$(find dist -type f | wc -l)" -eq 1 && test -f dist/index.html
 
   deploy:
-    name: Deploy Fever UI field to idv-login
+    name: Stage Fever UI field for cloud configuration review
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/fever'
     needs: test
     runs-on: ubuntu-latest
@@ -49,36 +49,9 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/idv_login_deploy
           chmod 600 ~/.ssh/idv_login_deploy
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-      - name: Publish Fever single-file UI field
+      - name: Stage Fever single-file UI field
         env:
           GIT_SSH_COMMAND: ssh -i ~/.ssh/idv_login_deploy -o IdentitiesOnly=yes
         run: |
           git clone git@github.com:KKeygen/idv-login.git target
-          python - <<'PY'
-          from pathlib import Path
-          import base64
-          import json
-          import time
-
-          html = Path('dist/index.html').read_bytes()
-          cloud_path = Path('target/assets/cloudRes.json')
-          cloud = json.loads(cloud_path.read_text(encoding='utf-8'))
-          cloud['login_base64_page_fever'] = base64.b64encode(html).decode('ascii')
-          cloud['lastModified'] = max(
-              int(time.time()), int(cloud.get('lastModified', 0)) + 1
-          )
-          cloud_path.write_text(
-              json.dumps(cloud, indent=2, ensure_ascii=False) + '\n',
-              encoding='utf-8',
-          )
-          PY
-          cd target
-          if git diff --quiet -- assets/cloudRes.json; then
-            echo "login_base64_page_fever is already up to date."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/cloudRes.json
-          git commit -m "chore: sync Fever Vue UI (${GITHUB_SHA::7})"
-          git push origin HEAD:main
+          bash scripts/stage-fever-ui.sh target dist/index.html

@@ -1,90 +1,352 @@
 <script setup>
-import { onMounted, reactive } from 'vue'
-import { Play, FolderOpen, Power, QrCode, Save, Network, FileText, Link, Newspaper } from '@lucide/vue'
-import { ApiError, request, resolveTask } from '../api'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
+import { ApiError, openExternal, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
+import { useAccountSwitching } from '../composables/useAccountSwitching'
+import { showConfirm } from '../dialogService'
+import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
+import { supportsNextFeverFeatures } from '../featureVersions'
+import HelpTip from './HelpTip.vue'
+import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
+const supportsNewFeatures = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
+const switching = useAccountSwitching()
+const activeSection = ref('general')
+const sections = [
+  { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
+  { id: 'network', label: '网络', description: '代理与游戏网络接管方式', icon: Network },
+  { id: 'diagnostics', label: '诊断', description: '实时输出、日志导出与状态重置', icon: Wrench },
+]
+const currentSection = computed(() => sections.find(item => item.id === activeSection.value))
 const form = reactive({
-  delay: 0, autoStart: false, autoStartPath: '', independentPath: false,
-  scanRecord: true, scanSupported: true, nativeSave: false, nativeSupported: true,
-  proxyMode: 'global', newsVisible: localStorage.getItem('idv.news.visible') !== 'false',
+  scanRecord: true,
+  scanSupported: true,
+  nativeSave: false,
+  nativeSupported: true,
+  debugEnabled: false,
+  debugSupported: false,
+  debugUploadEnabled: false,
+  debugUploadSupported: false,
+  proxyMode: 'global',
+  newsVisible: localStorage.getItem('idv.news.visible') !== 'false',
 })
+const terminalOutput = ref('')
+const terminalCursor = ref(0)
+const terminalSupported = ref(true)
+const terminalBox = ref(null)
+const resetting = ref(false)
+const loading = ref(true)
+const loadError = ref('')
+const saving = ref('')
+const debugLoadError = ref(false)
+let terminalTimer = null
+let terminalGeneration = 0
+let viewActive = true
 
 async function optional(path, options, unsupportedKey) {
   try { return await request(path, options) }
-  catch (error) { if (error instanceof ApiError && error.status === 404) { form[unsupportedKey] = false; app.markUpdateRequired(); return null } throw error }
+  catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      form[unsupportedKey] = false
+      app.markUpdateRequired()
+      return null
+    }
+    throw error
+  }
+}
+function parseVersion(value) {
+  const match = String(value || '').match(/\d+(?:\.\d+)*/)
+  return match ? match[0].split('.').map(Number) : null
+}
+function versionGreaterThan(value, target) {
+  const current = parseVersion(value)
+  const base = parseVersion(target)
+  if (!current || !base) return false
+  const length = Math.max(current.length, base.length)
+  for (let index = 0; index < length; index += 1) {
+    const left = current[index] || 0
+    const right = base[index] || 0
+    if (left !== right) return left > right
+  }
+  return false
 }
 async function load() {
-  const [delay, start, scan, native, proxy] = await Promise.allSettled([
-    request('/get-login-delay', { query: { game_id: app.state.gameId } }),
-    request('/get-game-auto-start', { query: { game_id: app.state.gameId } }),
-    optional('/scan-record-setting', {}, 'scanSupported'),
-    optional('/native-save-setting', {}, 'nativeSupported'),
-    request('/proxy-mode'),
-  ])
-  if (delay.status === 'fulfilled' && 'delay' in delay.value) form.delay = delay.value.delay
-  if (start.status === 'fulfilled') {
-    if ('enabled' in start.value) form.autoStart = Boolean(start.value.enabled)
-    if ('path' in start.value) form.autoStartPath = start.value.path || ''
-    form.independentPath = 'independent_path_config' in start.value && Boolean(start.value.independent_path_config)
+  loading.value = true
+  loadError.value = ''
+  try {
+    const health = await request('/health').catch(() => null)
+    const toolVersion = health && typeof health.version === 'string' ? health.version : ''
+    // 6.3.0-stable 起原生保存成为默认行为，不再提供开关；旧后端健康检查没有 version 字段。
+    form.nativeSupported = !(toolVersion && versionGreaterThan(toolVersion, '6.3.0-stable'))
+    const [scan, native, proxy, debug] = await Promise.allSettled([
+      optional('/scan-record-setting', {}, 'scanSupported'),
+      form.nativeSupported
+        ? optional('/native-save-setting', {}, 'nativeSupported')
+        : Promise.resolve(null),
+      request('/proxy-mode'),
+      request('/debug-mode').catch(error => {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }),
+    ])
+    if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
+    if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
+    if (proxy.status === 'fulfilled' && proxy.value && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
+    form.debugSupported = debug.status === 'fulfilled' && debug.value !== null
+      && debug.value?.success === true && typeof debug.value.enabled === 'boolean'
+      && typeof debug.value.upload_enabled === 'boolean'
+    debugLoadError.value = debug.status === 'rejected' || (debug.value !== null && !form.debugSupported)
+    if (form.debugSupported) {
+      form.debugEnabled = debug.value.enabled
+      form.debugUploadEnabled = debug.value.upload_enabled
+      form.debugUploadSupported = Boolean(debug.value.upload_supported)
+    }
+    if ([scan, native, proxy].some(result => result.status === 'rejected' || result.value?.success === false)
+      || (form.scanSupported && typeof scan.value?.enabled !== 'boolean')
+      || (form.nativeSupported && typeof native.value?.enabled !== 'boolean')
+      || !['global', 'process', 'compat'].includes(proxy.value?.mode)) {
+      loadError.value = '部分应用设置读取失败，请确认工具正在运行后重新读取，避免覆盖未读取的设置'
+    }
+  } catch {
+    loadError.value = '应用设置读取失败，请确认工具正在运行后重新读取'
+  } finally {
+    loading.value = false
   }
-  if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
-  if (native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
-  if (proxy.status === 'fulfilled' && 'mode' in proxy.value) form.proxyMode = proxy.value.mode
 }
-async function setAutoStart(enabled, updateMode = '') {
-  let result = await request('/set-game-auto-start', { query: { game_id: app.state.gameId, enabled, ...(updateMode ? { update_mode: updateMode } : {}) } })
-  result = await resolveTask(result)
-  if (result.cancelled) return
-  if (result.success === false) throw new Error(result.error || '设置失败')
-  if ('enabled' in result) form.autoStart = Boolean(result.enabled)
-  if ('path' in result) form.autoStartPath = result.path || ''
-  await app.refreshCurrent(); app.notify('启动设置已保存', 'success')
+async function toggleDebug(event) {
+  event.target.checked = form.debugEnabled
+  if (!form.debugSupported || saving.value) return
+  const enabled = !form.debugEnabled
+  saving.value = 'debug'
+  try {
+    const data = await changeDebugMode(enabled, { askConfirmation: showConfirm, request })
+    if (!data) return
+    form.debugEnabled = data.enabled
+    form.debugUploadEnabled = data.upload_enabled
+    form.debugUploadSupported = Boolean(data.upload_supported)
+    app.notify('设置已保存，工具正在重启', 'warning')
+  } catch {
+    app.notify('无法确认调试设置是否已保存，请先检查工具是否正在重启，再重新读取设置', 'error')
+  } finally {
+    saving.value = ''
+    event.target.checked = form.debugEnabled
+  }
 }
-async function saveDelay() { await app.mutate('delay', '/set-login-delay', { query: { game_id: app.state.gameId, delay: Math.max(0, Number(form.delay) || 0) } }, { reload: false }) }
-async function toggleAutoClose() { const data = await app.mutate('auto-close', '/switch-auto-close-state', { query: { game_id: app.state.gameId } }, { reload: false }); if ('state' in data) app.setAutoClose(data.state) }
-async function startGame() { await app.mutate('start-game', '/start-game', { query: { game_id: app.state.gameId } }, { reload: false }) }
-async function toggleScan() { const data = await request('/scan-record-setting', { method: 'POST', body: { enabled: !form.scanRecord } }); if (data.success === false) throw new Error(data.error); form.scanRecord = Boolean(data.enabled); if ('native_save_enabled' in data) form.nativeSave = Boolean(data.native_save_enabled); app.notify('扫码记录设置已保存', 'success') }
-async function toggleNative() { if (!form.scanRecord && !form.nativeSave) return app.notify('请先开启扫码记录', 'warning'); const data = await request('/native-save-setting', { method: 'POST', body: { enabled: !form.nativeSave } }); if (data.success === false) throw new Error(data.error); form.nativeSave = Boolean(data.enabled); app.notify('原生保存设置已保存', 'success') }
-async function setProxy() { const data = await request('/set-proxy-mode', { method: 'POST', body: { mode: form.proxyMode } }); if (data.success) app.notify('代理模式已保存，重启工具后生效', 'success') }
-async function exportLogs() { const data = await request('/export-logs'); app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success') }
-async function shortcut() { await app.mutate('shortcut', '/create-game-shortcut', { method: 'POST', body: { game_id: app.state.gameId, installation_id: app.state.launcher?.game?.default_installation_id || '' } }, { reload: false, optional: true }) }
-function setNews() { localStorage.setItem('idv.news.visible', String(form.newsVisible)); app.notify('新闻显示设置已保存', 'success') }
+async function toggleScan(event) {
+  // A checkbox changes before the request returns; keep its last confirmed state.
+  event.target.checked = form.scanRecord
+  if (saving.value) return
+  saving.value = 'scan'
+  try {
+    const data = await request('/scan-record-setting', { method: 'POST', body: { enabled: !form.scanRecord } })
+    if (data.success !== true || typeof data.enabled !== 'boolean') throw new Error('Setting not saved')
+    form.scanRecord = data.enabled
+    if ('native_save_enabled' in data) form.nativeSave = Boolean(data.native_save_enabled)
+    app.notify('扫码记录设置已保存', 'success')
+  } catch { app.notify('扫码记录设置未确认保存，请重新读取设置后再试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = ''; event.target.checked = form.scanRecord }
+}
+async function toggleNative(event) {
+  event.target.checked = form.nativeSave
+  if (!form.nativeSupported || saving.value) return
+  if (!form.scanRecord && !form.nativeSave) return app.notify('请先开启扫码记录', 'warning')
+  saving.value = 'native'
+  try {
+    const data = await request('/native-save-setting', { method: 'POST', body: { enabled: !form.nativeSave } })
+    if (data.success !== true || typeof data.enabled !== 'boolean') throw new Error('Setting not saved')
+    form.nativeSave = data.enabled
+    app.notify('原生保存设置已保存', 'success')
+  } catch { app.notify('原生保存设置未确认保存，请重新读取设置后再试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = ''; event.target.checked = form.nativeSave }
+}
+async function setProxy() {
+  if (saving.value) return
+  saving.value = 'proxy'
+  try {
+    const data = await request('/set-proxy-mode', { method: 'POST', body: { mode: form.proxyMode } })
+    if (data.success !== true) throw new Error('Proxy mode not saved')
+    app.notify('代理模式已保存，重启工具后生效', 'success')
+  } catch { app.notify('代理模式未确认保存，当前选择已保留，请重试；仍失败时请查看诊断日志', 'error') }
+  finally { saving.value = '' }
+}
+async function exportLogs() {
+  try {
+    const data = await request('/export-logs')
+    if (data.success !== true) throw new Error('Export not completed')
+    app.notify(data.path ? `日志已导出：${data.path}` : '日志已导出', 'success')
+  } catch { app.notify('诊断日志导出失败，请检查工具日志目录是否可写后重试', 'error') }
+}
+async function refreshAll() {
+  if (saving.value) return
+  saving.value = 'refresh'
+  try {
+    await app.loadGames()
+    const results = await app.refreshCurrent({ all: true, force: true })
+    await load()
+    if (results.some(result => result.status === 'rejected') || loadError.value) {
+      app.notify('部分数据未刷新，页面可能仍显示旧内容。请确认工具正在运行后重试；仍失败时请查看诊断日志', 'warning')
+    } else app.notify('数据已刷新', 'success')
+  } catch { app.notify('刷新数据失败，请确认工具正在运行后重试', 'error') }
+  finally { saving.value = '' }
+}
+
+function stopTerminal() {
+  terminalGeneration += 1
+  if (terminalTimer) clearTimeout(terminalTimer)
+  terminalTimer = null
+}
+async function pollTerminal(generation) {
+  if (
+    generation !== terminalGeneration
+    || !viewActive
+    || activeSection.value !== 'diagnostics'
+    || !terminalSupported.value
+  ) return
+  const element = terminalBox.value
+  const pinnedToBottom = !element || element.scrollHeight - element.scrollTop - element.clientHeight < 48
+  try {
+    const data = await request('/diagnostics/terminal', { query: { cursor: terminalCursor.value } })
+    if (generation !== terminalGeneration || !viewActive || activeSection.value !== 'diagnostics') return
+    terminalOutput.value = data.reset
+      ? String(data.output || '')
+      : terminalOutput.value + String(data.output || '')
+    terminalCursor.value = Number(data.cursor || 0)
+    if (pinnedToBottom) {
+      await nextTick()
+      if (generation === terminalGeneration && terminalBox.value) {
+        terminalBox.value.scrollTop = terminalBox.value.scrollHeight
+      }
+    }
+  } catch (error) {
+    if (generation !== terminalGeneration) return
+    if (error instanceof ApiError && error.status === 404) {
+      terminalSupported.value = false
+      app.markUpdateRequired()
+    }
+  } finally {
+    if (
+      generation === terminalGeneration
+      && viewActive
+      && activeSection.value === 'diagnostics'
+      && terminalSupported.value
+    ) {
+      terminalTimer = setTimeout(() => pollTerminal(generation), 750)
+    }
+  }
+}
+function startTerminal() {
+  stopTerminal()
+  if (viewActive && terminalSupported.value) pollTerminal(terminalGeneration)
+}
+function clearTerminalView() {
+  terminalOutput.value = ''
+}
+async function resetToolState() {
+  const confirmed = await showConfirm(
+    '这会删除 config.json，并清除游戏路径、启动偏好等全部工具设置。工具随后会立即重启，并重新检查和应用热更新。\n\n此操作无法撤销。',
+    { title: '重置工具状态', confirmText: '删除并重启', danger: true },
+  )
+  if (!confirmed) return
+  resetting.value = true
+  try {
+    const data = await request('/diagnostics/reset-state', { method: 'POST', body: { confirmed: true } })
+    if (data.success !== true) throw new Error('Reset not confirmed')
+    app.notify('工具状态已清除，正在重启', 'warning')
+  } catch (error) {
+    resetting.value = false
+    app.notify('无法确认工具是否已重置，请先检查工具是否正在重启，避免重复操作；详情见诊断日志', 'error')
+  }
+}
+function setNews() {
+  localStorage.setItem('idv.news.visible', String(form.newsVisible))
+  app.notify('新闻显示设置已保存', 'success')
+}
 onMounted(load)
+onActivated(() => {
+  viewActive = true
+  if (activeSection.value === 'diagnostics') startTerminal()
+})
+onDeactivated(() => {
+  viewActive = false
+  stopTerminal()
+})
+watch(activeSection, section => {
+  if (section === 'diagnostics') startTerminal()
+  else stopTerminal()
+})
+onBeforeUnmount(() => { viewActive = false; stopTerminal() })
 </script>
 
 <template>
   <section class="content-page settings-page">
-    <header class="page-title"><div><p class="eyebrow">偏好设置</p><h1>启动与工具设置</h1><p>只展示当前工具支持的能力；缺少的新接口会在右上角提示更新。</p></div></header>
-    <div class="settings-grid">
-      <article class="settings-card">
-        <header><Play :size="20" /><div><h2>游戏启动</h2><p>自动启动、路径和登录等待。</p></div></header>
-        <label class="setting-row"><span><strong>登录后自动启动游戏</strong><small>{{ form.autoStartPath || '尚未选择启动路径' }}</small></span><input type="checkbox" :checked="form.autoStart" @change="setAutoStart($event.target.checked, form.independentPath ? 'status_only' : '')" /></label>
-        <button class="ghost wide" @click="setAutoStart(true, form.independentPath ? 'path_only' : '')"><FolderOpen :size="17" /> {{ form.autoStartPath ? '重新选择游戏路径' : '选择游戏路径' }}</button>
-        <label class="field"><span>自动登录延迟（秒）</span><div class="inline"><input v-model.number="form.delay" type="number" min="0" /><button class="ghost" @click="saveDelay"><Save :size="16" /> 保存</button></div></label>
-        <div class="inline"><button class="primary" @click="startGame"><Play :size="17" /> 立即启动</button><button class="ghost" @click="shortcut"><Link :size="17" /> 创建桌面快捷方式</button></div>
-      </article>
+    <div class="settings-layout">
+      <aside class="settings-subnav glass">
+        <header><p class="eyebrow">偏好设置</p><h1>应用设置</h1></header>
+        <nav>
+          <button v-for="section in sections" :key="section.id" :class="{ active: activeSection === section.id }" @click="activeSection = section.id">
+            <component :is="section.icon" :size="20" />
+            <span><strong>{{ section.label }}</strong></span>
+          </button>
+        </nav>
+      </aside>
 
-      <article class="settings-card">
-        <header><Power :size="20" /><div><h2>工具行为</h2><p>登录完成后的窗口和记录行为。</p></div></header>
-        <label class="setting-row"><span><strong>登录成功后自动关闭工具</strong><small>当前游戏独立设置</small></span><input type="checkbox" :checked="app.state.autoClose" @change="toggleAutoClose" /></label>
-        <label v-if="form.scanSupported" class="setting-row"><span><strong>保存扫码账号记录</strong><small>用于下次快速切换账号</small></span><input type="checkbox" :checked="form.scanRecord" @change="toggleScan" /></label>
-        <label v-if="form.nativeSupported" class="setting-row"><span><strong>同步保存到游戏原生记录</strong><small>需要先开启扫码记录</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord" @change="toggleNative" /></label>
-        <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻卡片</small></span><input v-model="form.newsVisible" type="checkbox" @change="setNews" /></label>
-      </article>
+      <section class="settings-content">
+        <Transition name="section-change" mode="out-in">
+          <div :key="activeSection" class="settings-section-host">
+            <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
+            <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
+            <div v-else-if="loadError && activeSection !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
+            <article v-else-if="activeSection === 'general'" class="settings-card glass">
+          <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div><button class="text-button" :disabled="Boolean(saving)" @click="load">重新读取</button></header>
+          <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" :disabled="Boolean(saving)" @change="toggleScan" /></label>
+          <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord || Boolean(saving)" @change="toggleNative" /></label>
+          <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>游戏内切换渠道服账号</strong><small>选择游戏和账号，随时开启或重新配置</small></span><button class="quiet-button" :disabled="switching.state.saving" @click="switching.openWizard">打开配置向导</button></div>
+          <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><input v-model="form.newsVisible" type="checkbox" @change="setNews" /></label>
+        </article>
+        <article v-else-if="activeSection === 'network'" class="settings-card glass">
+          <header><Network :size="20" /><div><h2>代理模式</h2><p>修改后通常需要重启工具。</p></div></header>
+          <label class="field"><span class="field-label-with-help">网络接管方式 <HelpTip text="全局代理使用系统代理接管相关请求；仅游戏进程将影响限制在游戏及登录组件；兼容模式使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。修改后需重启工具才能完整生效。" /></span><select v-model="form.proxyMode" :disabled="Boolean(saving)"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
+          <button class="primary wide" :disabled="Boolean(saving)" @click="setProxy">保存代理模式</button>
+        </article>
+        <article v-else class="settings-card diagnostics-panel">
+          <header><FileText :size="20" /><div><h2>诊断工具</h2><p>查看实时输出或导出完整日志，方便定位运行问题。</p></div></header>
+          <div class="diagnostics-actions">
+            <button class="quiet-button" @click="exportLogs"><FileText :size="17" />导出诊断日志</button>
+            <button class="quiet-button" :disabled="Boolean(saving)" @click="refreshAll">刷新全部数据</button>
+            <button v-if="supportsNewFeatures" class="quiet-button" @click="openExternal(FEEDBACK_URL)">问题反馈</button>
+          </div>
 
-      <article class="settings-card">
-        <header><Network :size="20" /><div><h2>代理模式</h2><p>修改后通常需要重启工具。</p></div></header>
-        <label class="field"><span>网络接管方式</span><select v-model="form.proxyMode"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
-        <button class="primary wide" @click="setProxy">保存代理模式</button>
-      </article>
+          <label v-if="supportsNewFeatures && form.debugSupported" class="setting-row">
+            <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志会上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
+            <input type="checkbox" :checked="form.debugEnabled" :disabled="Boolean(saving)" @change="toggleDebug" />
+          </label>
+          <div v-else-if="supportsNewFeatures" class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>
 
-      <article class="settings-card">
-        <header><FileText :size="20" /><div><h2>诊断</h2><p>导出运行状态和日志，方便排查问题。</p></div></header>
-        <button class="ghost wide" @click="exportLogs"><FileText :size="17" /> 导出诊断日志</button>
-        <button class="ghost wide" @click="app.loadGames().then(app.refreshCurrent)">刷新全部数据</button>
-      </article>
+          <section class="diagnostics-terminal" aria-label="工具实时输出">
+            <header>
+              <span><Terminal :size="16" />工具实时输出</span>
+              <span v-if="terminalSupported" class="terminal-live"><i />实时</span>
+              <span v-else class="terminal-unavailable">需要更新工具</span>
+              <button class="text-button" type="button" @click="clearTerminalView">清空显示</button>
+            </header>
+            <pre ref="terminalBox" aria-live="polite">{{ terminalSupported ? (terminalOutput || '等待工具输出…') : '当前工具版本不支持实时输出。' }}</pre>
+          </section>
+
+          <section class="diagnostics-reset-row">
+            <div>
+              <strong>重置工具状态</strong>
+              <small>删除 config.json，清除游戏路径等全部设置并重启；重启后会重新检查和应用热更新。</small>
+            </div>
+            <button class="quiet-button danger" :disabled="resetting" @click="resetToolState">
+              <MotionProgressRing v-if="resetting" :size="16" aria-label="正在重启工具" /><RotateCcw v-else :size="16" />{{ resetting ? '正在重启…' : '重置工具状态' }}
+            </button>
+          </section>
+            </article>
+          </div>
+        </Transition>
+      </section>
     </div>
   </section>
 </template>

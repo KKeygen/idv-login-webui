@@ -8,7 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "check:sfc": "node scripts/check-sfc.mjs",
+    "check:logic": "node scripts/check-logic.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.25.0",
