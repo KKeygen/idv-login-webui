@@ -158,10 +158,10 @@ describe('legacy API surface', () => {
     expect(styles).not.toContain('@keyframes game-scene-in')
   })
 
-  it('stages the Fever UI field for cloud configuration review', () => {
+  it('stages the main release UI field for cloud configuration review', () => {
     const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
     const script = readFileSync(new URL('../scripts/stage-fever-ui.sh', import.meta.url), 'utf8')
-    expect(workflow).toContain("github.ref == 'refs/heads/fever'")
+    expect(workflow).toContain("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'")
     expect(workflow).toContain('bash scripts/stage-fever-ui.sh target dist/index.html')
     expect(script).toContain('push origin HEAD:refs/heads/cloud-config-staging')
     expect(script).not.toMatch(/push\s+origin\s+HEAD:(?:refs\/heads\/)?main/)

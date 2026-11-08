@@ -26,10 +26,17 @@ jobs:
       - run: npm run build
       - name: Verify single-file build
         run: test "$(find dist -type f | wc -l)" -eq 1 && test -f dist/index.html
+      - name: Upload branch build
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fever')
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-${{ github.ref_name }}-${{ github.sha }}
+          path: dist/index.html
+          if-no-files-found: error
 
   deploy:
-    name: Stage Fever UI field for cloud configuration review
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/fever'
+    name: Stage main release candidate for cloud configuration review
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     steps:

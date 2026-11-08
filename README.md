@@ -26,10 +26,22 @@ npm run build:standalone
 
 构建完成后只需部署 `dist/index.html`。它不依赖外部 JavaScript、CSS 或字体文件。
 
-`main` 分支的测试和单文件构建成功后，GitHub Actions 会把
-`dist/index.html` 自动提交到 `KKeygen/idv-login` 的
-`assets/index.html`。跨仓库写入使用只绑定目标仓库的 Deploy Key；Pull
-Request 只执行测试，不部署。
+### 分支与 CI/CD
+
+- `fever` 是 staging 开发分支：推送或手动运行会执行测试、构建，并上传
+  `webui-fever-<commit>` 单文件构建产物；不会改写下游云配置。
+- 将验证后的 `fever` 修改合入 `main`。作为发布来源，`main` 在测试和单文件
+  构建成功后，自动把 `login_base64_page_fever` 更新提交到
+  `KKeygen/idv-login` 的 `cloud-config-staging` 候选分支，同时保留
+  `webui-main-<commit>` 构建产物。手动运行 `main` 的工作流遵循同一路径。
+- 候选保留其他待审核配置；UI 内容变化时清除旧签名。正式发布仍沿用下游现有的
+  审核与签名流程。本仓库工作流不会直接推送 `idv-login/main`、写入
+  `assets/index.html`、签名云配置或创建 Release。
+- Pull Request 和其他分支只执行测试及构建。旧 `staging`、`fever-staging`
+  分支保留历史，不是发布来源。
+
+跨仓库候选提交继续使用现有、只绑定目标仓库的 Deploy Key，不新增凭证或权限。
+本次分支职责调整不改变云配置中的 Fever UI 字段名。
 
 ## 组件结构
 
