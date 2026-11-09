@@ -36,6 +36,6 @@ describe('debug mode consent', () => {
   })
 
   it('uses the deployed user feedback survey', () => {
-    expect(FEEDBACK_URL).toBe('https://idv-feedback.keygen.eu.org/index.php/82556')
+    expect(FEEDBACK_URL).toBe('https://idv-feedback.keygen.eu.org/f/idv-login-feedback')
   })
 })

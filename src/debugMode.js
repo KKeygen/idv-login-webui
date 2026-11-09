@@ -1,4 +1,4 @@
-export const FEEDBACK_URL = 'https://idv-feedback.keygen.eu.org/index.php/82556'
+export const FEEDBACK_URL = 'https://idv-feedback.keygen.eu.org/f/idv-login-feedback'
 
 export function debugConfirmation(enabled) {
   return enabled
