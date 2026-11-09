@@ -76,11 +76,21 @@ export function findTypeahead(options, text, start = -1) {
 
 export function selectPlacement(rect, { viewportWidth, viewportHeight, rowHeight = 32, count, selectedIndex = 0, maxHeight = 504, margin = 8, padding = 4, outset = 0, minWidth = 80 }) {
   const width = Math.min(Math.max(rect.width + outset * 2, minWidth), Math.max(0, viewportWidth - margin * 2))
-  const height = Math.min(Math.max(rowHeight + padding * 2, count * rowHeight + padding * 2), maxHeight, Math.max(0, viewportHeight - margin * 2))
+  // WinUI limits visible rows to 15; this never limits the option data.
+  let height = Math.min(Math.max(rowHeight + padding * 2, Math.min(count, 15) * rowHeight + padding * 2), maxHeight, Math.max(0, viewportHeight - margin * 2))
   const index = Math.max(0, selectedIndex)
   const anchor = rect.top + rect.height / 2
   const wantedTop = anchor - padding - index * rowHeight - rowHeight / 2
-  const top = Math.max(margin, Math.min(wantedTop, viewportHeight - height - margin))
+  let top = Math.max(margin, Math.min(wantedTop, viewportHeight - height - margin))
+  // Do not fill empty space past either end of the list just to reach the
+  // height cap. Native mouse layout keeps the selected row on the faceplate
+  // and shortens the popup at the first/last item near a window edge.
+  if (wantedTop > top) {
+    top = Math.min(wantedTop, Math.max(margin, viewportHeight - margin - rowHeight - padding * 2))
+    height = Math.min(height, Math.max(0, viewportHeight - margin - top))
+  }
+  const desiredScroll = padding + index * rowHeight + rowHeight / 2 - (anchor - top)
+  if (desiredScroll > 0) height = Math.min(height, Math.max(rowHeight + padding * 2, count * rowHeight + padding * 2 - desiredScroll))
   const maxScroll = Math.max(0, count * rowHeight + padding * 2 - height)
   const scrollTop = Math.max(0, Math.min(padding + index * rowHeight + rowHeight / 2 - (anchor - top), maxScroll))
   const selectedCenter = padding + index * rowHeight + rowHeight / 2 - scrollTop

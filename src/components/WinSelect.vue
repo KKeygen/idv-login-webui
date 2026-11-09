@@ -20,6 +20,7 @@ const listId = `win-select-${uid}-list`
 const buttonId = computed(() => attrs.id || `win-select-${uid}`)
 const button = ref(null)
 const popup = ref(null)
+const optionsViewport = ref(null)
 const faceplate = ref(null)
 const opened = ref(false)
 const active = ref(true)
@@ -65,17 +66,18 @@ function updatePosition(resetScroll = false, element = popup.value) {
     if (property.startsWith('--')) element.style.setProperty(property, value)
     else element.style[property] = value
   }
-  if (resetScroll) element.scrollTop = placement.scrollTop
+  if (resetScroll && optionsViewport.value) optionsViewport.value.scrollTop = placement.scrollTop
 }
 async function scrollActive() {
   await nextTick()
-  if (!opened.value || !popup.value || activeIndex.value < 0) return
-  const option = popup.value.querySelectorAll('[role="option"]')[activeIndex.value]
+  const viewport = optionsViewport.value
+  if (!opened.value || !viewport || activeIndex.value < 0) return
+  const option = viewport.querySelectorAll('[role="option"]')[activeIndex.value]
   if (!option) return
   const top = option.offsetTop
   const bottom = top + (option.offsetHeight || rowHeight)
-  if (top < popup.value.scrollTop) popup.value.scrollTop = top
-  else if (bottom > popup.value.scrollTop + popup.value.clientHeight) popup.value.scrollTop = Math.max(0, bottom - popup.value.clientHeight)
+  if (top < viewport.scrollTop) viewport.scrollTop = top
+  else if (bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = Math.max(0, bottom - viewport.clientHeight)
 }
 async function openPopup(preferredIndex) {
   if (!mounted || !active.value || props.disabled || opened.value || !props.options.length) return
@@ -88,6 +90,7 @@ async function openPopup(preferredIndex) {
   await nextTick()
   if (!opened.value || !mounted || !active.value) return
   updatePosition(true)
+  if (preferredIndex != null && preferredIndex !== selectedIndex.value) scrollActive()
 }
 function resetSearch() { typeahead = ''; clearTimeout(typeaheadTimer) }
 function closePopup(restore = false) {
@@ -156,7 +159,7 @@ function handleScroll(event) {
 function handleWindowBlur() { closePopup() }
 function handleVisibility() { if (document.hidden) closePopup() }
 function handlePointerDown(event) { keyboardNavigation.value = false; openingPointer = { x: event.clientX, y: event.clientY } }
-function handleResize() { if (opened.value) updatePosition(true) }
+function handleResize() { if (opened.value) { updatePosition(true); if (keyboardNavigation.value) scrollActive() } }
 function cancelMotion() { motionGeneration += 1; motion.forEach(animation => animation.cancel()); motion = []; motionDone = undefined }
 function runMotion(element, entering, done) {
   if (!active.value) { cancelMotion(); done(); return }
@@ -259,13 +262,15 @@ onBeforeUnmount(() => { mounted = false; suspend() })
   <input v-if="name" type="hidden" :name="name" :value="modelValue" :disabled="disabled" />
   <Teleport :to="portal">
     <Transition :css="false" @enter="(el, done) => runMotion(el, true, done)" @leave="(el, done) => runMotion(el, false, done)">
-      <ul v-if="opened && active" :id="listId" ref="popup" class="win-select-popup win-acrylic-host" :style="popupStyle" role="listbox" :aria-labelledby="buttonId" @pointerleave="pointerIndex = -1" @pointerdown.prevent>
-        <li class="win-select-material" role="presentation" aria-hidden="true"><AcrylicSurface variant="default" /></li>
+      <div v-if="opened && active" :id="listId" ref="popup" class="win-select-popup win-acrylic-host" :style="popupStyle" role="listbox" :aria-labelledby="buttonId" @pointerleave="pointerIndex = -1" @pointerdown.prevent>
+        <div class="win-select-material" aria-hidden="true"><AcrylicSurface variant="default" /></div>
+        <ul ref="optionsViewport" class="win-select-options" role="presentation">
         <li v-for="(option, index) in options" :id="`${listId}-${index}`" :key="`${typeof option.value}:${String(option.value)}`" role="option" :aria-selected="Object.is(option.value, modelValue)" :aria-disabled="!!option.disabled" :data-keyboard-active="keyboardNavigation && activeIndex === index" class="win-select-option" :class="{ 'is-selected': Object.is(option.value, modelValue), 'is-active': activeIndex === index, 'is-pointer-over': pointerIndex === index, 'is-disabled': option.disabled }" @pointermove="optionPointerMove(index, $event)" @click.stop="commit(index)">
           <span class="win-select-pill" aria-hidden="true" />
           <span>{{ option.label }}</span>
         </li>
-      </ul>
+        </ul>
+      </div>
     </Transition>
   </Teleport>
 </template>
@@ -291,7 +296,11 @@ onBeforeUnmount(() => { mounted = false; suspend() })
 .win-select:focus-visible:not([data-open="true"]) .is-placeholder { color: #ffffffc5; }
 .win-select:focus-visible:not([data-open="true"])::before { content: ''; position: absolute; inset: -5px; border: 2px solid #fff; border-radius: 7px; pointer-events: none; }
 .win-select:focus-visible:not([data-open="true"])::after { content: ''; position: absolute; left: 0; top: calc(50% - 8px); width: 3px; height: 16px; border-radius: 1.5px; background: var(--accent, #60cdff); pointer-events: none; }
-.win-select-popup.win-acrylic-host { position: fixed; z-index: 1000; box-sizing: border-box; min-height: 0; margin: 0; padding: 4px; list-style: none; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid #00000033; border-radius: 8px; background: transparent; color: #fff; font-family: inherit; font-size: 14px; font-weight: 400; box-shadow: 0 8px 24px #0006; outline: none; }
+.win-select-popup.win-acrylic-host { position: fixed; z-index: 1000; display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; margin: 0; padding: 0; border: 1px solid #00000033; border-radius: 8px; background: transparent; color: #fff; font-family: inherit; font-size: 14px; font-weight: 400; box-shadow: 0 8px 24px #0006; outline: none; }
+/* Like PopupBorder > ScrollViewer, material and scrollbar stay outside the
+   moving options. Keeping the scrollbar inside the popup also prevents its
+   pointerdown from being mistaken for an outside click. */
+.win-select-options { position: relative; flex: 0 1 auto; min-height: 0; box-sizing: border-box; margin: 0; padding: 4px; list-style: none; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border-radius: 7px; }
 .win-select-material { position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; list-style: none; }
 .win-select-option { position: relative; display: flex; align-items: center; flex-shrink: 0; box-sizing: border-box; min-height: var(--select-row-height, 32px); height: var(--select-row-height, 32px); padding: var(--select-option-padding, 5px 14px 7px 12px); border: solid transparent; border-width: var(--select-option-border-width, 1px); border-radius: var(--select-option-radius, 4px); cursor: default; user-select: none; white-space: nowrap; overflow: hidden; }
 .win-select-option > span:last-child { overflow: hidden; text-overflow: ellipsis; }
