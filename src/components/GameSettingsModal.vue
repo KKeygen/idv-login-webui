@@ -1,5 +1,5 @@
 <script setup>
-import DirectionalTransition from './DirectionalTransition.vue'
+import VerticalFlipView from './VerticalFlipView.vue'
 import WinNavigation from './WinNavigation.vue'
 import WinSwitch from './WinSwitch.vue'
 import { computed, reactive, ref, watch } from 'vue'
@@ -201,8 +201,8 @@ async function createShortcut() {
     <div class="game-settings-layout">
       <aside class="game-settings-nav"><p>游戏设置</p><WinNavigation v-model="activeSection" :items="visibleSections" aria-label="游戏设置分类" /></aside>
 
-      <DirectionalTransition axis="vertical" :direction="activeSection === 'launch' ? 'forward' : 'back'">
-        <section v-if="activeSection === 'basic'" key="basic" class="game-settings-content">
+      <VerticalFlipView class="game-settings-flip" :selected-index="activeSection === 'launch' ? 1 : 0">
+        <section class="game-settings-content" :aria-hidden="activeSection !== 'basic' ? 'true' : undefined" :inert="activeSection !== 'basic'">
         <div class="game-settings-game-header">
           <span class="game-settings-game-icon">
             <img v-if="gameIcon" :src="gameIcon" alt="" />
@@ -226,7 +226,7 @@ async function createShortcut() {
         </div>
         </section>
 
-        <section v-else key="launch" class="game-settings-content">
+        <section v-if="installed" class="game-settings-content" :aria-hidden="activeSection !== 'launch' ? 'true' : undefined" :inert="activeSection !== 'launch'">
           <header><h2>启动设置</h2><p>这些选项只应用于当前游戏。</p></header>
           <div v-if="loading" class="content-loading"><MotionProgressRing :size="28" aria-label="正在读取游戏设置" /><span>正在读取设置…</span></div>
         <template v-else>
@@ -236,7 +236,7 @@ async function createShortcut() {
           <label v-if="supported.feverBridge && form.feverForceSupported && canUseFeverBridge" class="setting-row"><span><strong>强制此游戏使用平台托管登录</strong><small>覆写当前游戏的默认登录方式判断</small></span><WinSwitch :model-value="form.feverForced" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('feverForced', toggleFeverForced)" /></label>
           </template>
         </section>
-      </DirectionalTransition>
+      </VerticalFlipView>
     </div>
   </ModalShell>
 </template>

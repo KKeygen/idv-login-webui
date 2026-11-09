@@ -12,8 +12,8 @@
 .page-change-leave-to, .section-change-leave-to { opacity: 0; transform: none; }
 .page-change-enter-active, .section-change-enter-active { transition: transform 300ms cubic-bezier(.1,.9,.2,1); }
 .page-change-enter-from, .section-change-enter-from { opacity: 1; transform: translateY(140px); }
-/* Game settings use a vertical FlipView equivalent; wizards use the same
-   directional contract horizontally. Browser gesture/scroll physics are not WinUI. */
+/* Directional adapters for wizard steps. Game settings now use one continuous
+   scroll extent in VerticalFlipView rather than these separate leave/enter tracks. */
 .flip-forward-enter-active, .flip-back-enter-active, .step-forward-enter-active, .step-back-enter-active { transition: transform 300ms cubic-bezier(.1,.9,.2,1), opacity 150ms linear; }
 .flip-forward-leave-active, .flip-back-leave-active, .step-forward-leave-active, .step-back-leave-active { transition: transform 150ms cubic-bezier(.7,0,1,.5), opacity 150ms linear; pointer-events: none; }
 .flip-forward-enter-from { transform: translateY(100%); opacity: 0; }

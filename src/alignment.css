@@ -19,6 +19,9 @@
 .switching-settings .win-expander-header { margin-left: auto; }
 .switching-settings-body { margin: 0; }
 .game-settings-layout { overflow: hidden; }
+.game-settings-flip { margin: 24px 0 0 24px; }
+.game-settings-flip .game-settings-content { margin: 0; }
+@media (max-width: 760px) { .game-settings-flip { margin: 12px 0 0; } }
 .game-rail { transition: transform 300ms cubic-bezier(.8,0,.2,1); }
 .game-tab:not(.active) .game-tab-icon { opacity: .62; transition: opacity 167ms linear; }
 .game-tab:is(:hover,:focus-visible) .game-tab-icon, .game-tab.active .game-tab-icon { opacity: 1; }

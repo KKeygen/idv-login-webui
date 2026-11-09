@@ -490,14 +490,14 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
       @load="handleEasterFrameLoad"
       @error="handleEasterFrameError"
     ></iframe>
-    <section class="launcher-identity">
-      <Transition name="brand-crossfade" mode="out-in">
-        <img v-if="brandLogo" :key="brandLogo" class="launcher-brand-logo" :src="brandLogo" :alt="title" width="330" height="138" decoding="async" />
-        <h1 v-else :key="title">{{ title }}</h1>
-      </Transition>
+    <section class="launcher-identity" data-navigation-foreground>
+      <!-- The outgoing Frame snapshot already owns the old identity. A second
+           out-in fade would leave the previous game's logo in the new page. -->
+      <img v-if="brandLogo" :key="brandLogo" class="launcher-brand-logo" :src="brandLogo" :alt="title" width="330" height="138" decoding="async" />
+      <h1 v-else :key="title">{{ title }}</h1>
     </section>
 
-    <div class="launcher-bottom">
+    <div class="launcher-bottom" data-navigation-foreground>
       <LauncherNewsPanel :visible="showNews" :cover="newsCover" :items="news" :more-url="newsMoreUrl" @hide="toggleNews" @open="openExternal" />
 
       <LauncherControls
