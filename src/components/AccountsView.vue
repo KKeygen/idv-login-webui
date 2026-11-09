@@ -1,4 +1,6 @@
 <script setup>
+import { freezeLeavingElement, clearLeavingElement } from '../motion'
+import WinSelect from './WinSelect.vue'
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
@@ -18,6 +20,7 @@ const channelNames = { xiaomi_app:'小米账号', huawei:'华为账号', nearme_
 const selected = ref(new Set())
 const loggingIn = ref('')
 const deleting = ref(false)
+const defaultSaving = ref(false)
 const channel = ref('')
 const qrOpen = ref(false)
 const qrData = ref({ status: 'loading', qrcode_base64: '' })
@@ -208,6 +211,8 @@ async function removeSelected() {
   } finally { deleting.value = false }
 }
 async function setDefault(uuid) {
+  if (defaultSaving.value || app.state.defaultUuid === uuid) return
+  defaultSaving.value = true
   const gameId = app.state.gameId
   const label = accountLabel(uuid)
   try {
@@ -216,8 +221,11 @@ async function setDefault(uuid) {
     app.notify(`已设置“${label}”自动登录`, 'success')
   } catch { app.notify(`“${label}”自动登录设置未完成，请核对刷新后的设置再重试`, 'error') }
   await refreshAccounts(gameId)
+  defaultSaving.value = false
 }
 async function clearDefault() {
+  if (defaultSaving.value) return
+  defaultSaving.value = true
   const gameId = app.state.gameId
   try {
     const result = await request('/clearDefault', { query: { game_id: shortGameId(gameId) } })
@@ -225,8 +233,8 @@ async function clearDefault() {
     app.notify('已关闭自动登录', 'success')
   } catch { app.notify('关闭自动登录未完成，请核对刷新后的设置再重试', 'error') }
   await refreshAccounts(gameId)
+  defaultSaving.value = false
 }
-async function toggleDefault(uuid) { app.state.defaultUuid === uuid ? await clearDefault() : await setDefault(uuid) }
 
 function stopQr() { if (qrTimer) clearTimeout(qrTimer); qrTimer = null }
 function qrScopeMatches(gameId) {
@@ -332,16 +340,16 @@ onDeactivated(leaveAccounts)
 
 <template>
   <section class="content-page accounts-page">
-    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><select v-model="channel" aria-label="选择登录渠道"><option value="">选择登录渠道</option><option v-for="item in channels" :key="item.channel" :value="item.channel">{{ item.name }}</option></select><button class="primary" @click="importAccount('', supportsNewFeatures)"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
+    <header class="page-title"><div><p class="eyebrow">账号管理</p><h1>选择登录身份</h1><p>登录、整理账号，并为当前游戏设置自动登录。</p></div><div class="account-login-entry"><div class="account-login-capsule"><WinSelect v-model="channel" aria-label="选择登录渠道" :options="[{value: '', label: '选择登录渠道'}, ...channels.map(item => ({ value: item.channel, label: item.name }))]" /><button class="primary" @click="importAccount('', supportsNewFeatures)"><UserPlus :size="18" /><span>登录账号</span></button></div><button class="channel-help" @click="openExternal('https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnagw50fXrN5cGlpEGzyOHgc')"><CircleHelp :size="14" /> 没有找到想要登录的渠道？</button></div></header>
     <AccountSwitchingSettings />
     <div v-if="!accounts.length" class="empty-state"><UserPlus :size="35" /><h2>还没有账号</h2><p>从右上角选择渠道，然后完成登录导入。</p></div>
-    <section v-else class="account-list">
-      <header class="account-list-toolbar">
-        <div><Star :size="17" /><span>自动登录：<strong>{{ defaultAccountLabel }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" @click="clearDefault">关闭</button></div>
+    <section class="account-list" :class="{ 'is-empty': !accounts.length }">
+      <header v-show="accounts.length" class="account-list-toolbar">
+        <div><Star :size="17" /><span>自动登录：<strong>{{ defaultAccountLabel }}</strong></span><button v-if="app.state.defaultUuid" class="text-button" :disabled="defaultSaving" @click="clearDefault">关闭</button></div>
         <div><button class="quiet-button" @click="toggleAll"><CheckSquare :size="16" />{{ selected.size === accounts.length ? '取消全选' : '全选' }}</button><button class="quiet-button danger" :disabled="!selected.size || deleting" @click="removeSelected"><Trash2 :size="16" />删除所选</button><span>{{ accounts.length }} 个账号</span></div>
       </header>
-      <div class="account-list-columns" aria-hidden="true"><span></span><span>账号</span><span>上次登录</span><span>自动登录</span><span>操作</span></div>
-      <TransitionGroup name="list-item" tag="div" class="account-list-body">
+      <div v-show="accounts.length" class="account-list-columns" aria-hidden="true"><span></span><span>账号</span><span>上次登录</span><span>自动登录</span><span>操作</span></div>
+      <TransitionGroup name="list-item" @before-leave="freezeLeavingElement" @leave-cancelled="clearLeavingElement" @after-enter="clearLeavingElement" tag="div" class="account-list-body">
       <article
         v-for="account in accounts"
         :key="account.uuid"
@@ -351,12 +359,13 @@ onDeactivated(leaveAccounts)
         role="button"
         tabindex="0"
         @click="toggle(account.uuid)"
-        @keydown.space.prevent="toggle(account.uuid)"
+        @keydown.space.self.prevent="toggle(account.uuid)"
+        @keydown.enter.self.prevent="toggle(account.uuid)"
       >
         <span class="account-selection"><Check v-if="selected.has(account.uuid)" :size="14" /></span>
         <div class="account-identity"><div class="avatar">{{ (account.display_name || account.name || account.uuid || '?').slice(0, 1).toUpperCase() }}</div><div class="account-copy"><h3>{{ account.display_name || account.name || '未命名账号' }}</h3><code>{{ account.uuid }}</code><div v-if="listSupported && typeof account.included === 'boolean' && typeof account.will_include === 'boolean'" class="account-projection-state"><span>{{ account.included ? '当前已包含' : '当前未包含' }}</span><span>{{ account.will_include ? '下次启动将包含' : '下次启动不包含' }}</span></div></div></div>
         <time>{{ formatTime(account.last_login_time) }}</time>
-        <div><button class="account-auto-login-toggle" :class="{ active: app.state.defaultUuid === account.uuid }" role="switch" :aria-checked="app.state.defaultUuid === account.uuid" :title="app.state.defaultUuid === account.uuid ? '关闭此账号的自动登录' : '将此账号设为自动登录'" @click.stop="toggleDefault(account.uuid)"><span class="account-auto-login-track" aria-hidden="true"></span><span>{{ app.state.defaultUuid === account.uuid ? '开启' : '关闭' }}</span></button></div>
+        <div @click.stop @keydown.stop><label class="account-default-choice"><input type="radio" name="account-auto-login" :checked="app.state.defaultUuid === account.uuid" :disabled="defaultSaving" :aria-label="`自动登录 ${account.display_name || account.name || '账号'}`" @click.prevent="setDefault(account.uuid)" /><span>{{ app.state.defaultUuid === account.uuid ? '默认账号' : '设为默认' }}</span></label></div>
         <div class="account-actions" @click.stop><button class="quiet-button account-login" :disabled="Boolean(loggingIn)" title="登录" @click="login(account.uuid)"><LogIn :size="15" />登录</button><button class="account-icon-action" title="重命名" @click="rename(account)"><Pencil :size="15" /></button><button class="account-icon-action danger" :disabled="deleting" title="删除" @click="remove(account.uuid)"><Trash2 :size="15" /></button></div>
       </article>
       </TransitionGroup>

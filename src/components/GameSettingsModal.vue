@@ -1,4 +1,7 @@
 <script setup>
+import DirectionalTransition from './DirectionalTransition.vue'
+import WinNavigation from './WinNavigation.vue'
+import WinSwitch from './WinSwitch.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { Download, FileText, FolderOpen, Link, Save, Trash2 } from '@lucide/vue'
 import { ApiError, request, resourceUrl } from '../api'
@@ -12,6 +15,13 @@ const emit = defineEmits(['close', 'update', 'locate', 'remove', 'import-fever',
 const app = useAppStore()
 const activeSection = ref('basic')
 const loading = ref(false)
+const pendingSetting = ref('')
+async function saveSetting(name, action) {
+  if (pendingSetting.value || loading.value) return
+  pendingSetting.value = name
+  try { await action() } catch { app.notify('当前游戏的设置未确认保存，请重新读取后重试', 'error') }
+  finally { pendingSetting.value = '' }
+}
 const supported = reactive({ autoStart: true, autoClose: true, loginDelay: true, feverBridge: true })
 const form = reactive({ autoStart: false, autoClose: false, loginDelay: 0, feverForced: false, feverForceSupported: false })
 const sections = [
@@ -27,6 +37,7 @@ const installation = computed(() => distribution.value?.installation || (!distri
 const installationId = computed(() => installation.value?.installation_id || '')
 const distributionId = computed(() => distribution.value?.distribution_id ?? -1)
 const installed = computed(() => Boolean(installation.value?.installed))
+const visibleSections = computed(() => sections.filter(section => section.id === 'basic' || installed.value))
 const canImportFever = computed(() => Boolean(distribution.value?.can_import_fever))
 const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
 const canRepairMissing = computed(() => Boolean(
@@ -50,6 +61,7 @@ const canUseFeverBridge = computed(() => (
 
 function captureScope() {
   return {
+    generation: loadGeneration,
     gameId: app.state.gameId,
     distributionId: distributionId.value,
     installationId: installationId.value,
@@ -58,6 +70,7 @@ function captureScope() {
 function scopeMatches(scope) {
   return Boolean(
     props.open
+    && scope.generation === loadGeneration
     && cmpGameId(scope.gameId, app.state.gameId)
     && String(scope.distributionId) === String(distributionId.value)
     && String(scope.installationId) === String(installationId.value),
@@ -140,14 +153,14 @@ async function setAutoStart() {
   const data = await request('/set-game-auto-start', {
     query: scopeQuery(scope, { enabled, update_mode: 'status_only' }),
   })
-  if (data.success === false) throw new Error(data.error || '设置失败')
+  if (data.success === false || typeof data.enabled !== 'boolean') throw new Error(data.error || '设置失败')
   if (scopeMatches(scope)) form.autoStart = Boolean(data.enabled)
   app.notify('当前游戏的自动启动设置已保存', 'success')
 }
 async function toggleAutoClose() {
   const scope = captureScope()
   const data = await request('/switch-auto-close-state', { query: scopeQuery(scope) })
-  if (data.success === false) throw new Error(data.error || '设置失败')
+  if (data.success === false || typeof data.state !== 'boolean') throw new Error(data.error || '设置失败')
   if (scopeMatches(scope)) form.autoClose = Boolean(data.state)
   app.notify('当前游戏的关闭设置已保存', 'success')
 }
@@ -184,16 +197,11 @@ async function createShortcut() {
 </script>
 
 <template>
-  <ModalShell :open="open" :title="`${title} · 游戏设置`" headerless modal-class="game-settings-modal" @close="emit('close')">
+  <ModalShell :open="open" smoke-background="transparent" :title="`${title} · 游戏设置`" headerless modal-class="game-settings-modal" @close="emit('close')">
     <div class="game-settings-layout">
-      <nav class="game-settings-nav">
-        <p>游戏设置</p>
-        <button v-for="section in sections" v-show="section.id === 'basic' || installed" :key="section.id" :class="{ active: activeSection === section.id }" @click="activeSection = section.id">
-          {{ section.label }}
-        </button>
-      </nav>
+      <aside class="game-settings-nav"><p>游戏设置</p><WinNavigation v-model="activeSection" :items="visibleSections" aria-label="游戏设置分类" /></aside>
 
-      <Transition name="section-change" mode="out-in">
+      <DirectionalTransition axis="vertical" :direction="activeSection === 'launch' ? 'forward' : 'back'">
         <section v-if="activeSection === 'basic'" key="basic" class="game-settings-content">
         <div class="game-settings-game-header">
           <span class="game-settings-game-icon">
@@ -222,13 +230,13 @@ async function createShortcut() {
           <header><h2>启动设置</h2><p>这些选项只应用于当前游戏。</p></header>
           <div v-if="loading" class="content-loading"><MotionProgressRing :size="28" aria-label="正在读取游戏设置" /><span>正在读取设置…</span></div>
         <template v-else>
-          <label v-if="supported.autoStart" class="setting-row"><span><strong>工具启动后自动运行此游戏</strong><small>{{ installation?.path || '尚未选择游戏路径' }}</small></span><input type="checkbox" :checked="form.autoStart" @change="setAutoStart" /></label>
-          <label v-if="supported.autoClose" class="setting-row"><span><strong>登录成功后自动关闭工具</strong><small>只应用于当前游戏</small></span><input type="checkbox" :checked="form.autoClose" @change="toggleAutoClose" /></label>
+          <label v-if="supported.autoStart" class="setting-row"><span><strong>工具启动后自动运行此游戏</strong><small>{{ installation?.path || '尚未选择游戏路径' }}</small></span><WinSwitch :model-value="form.autoStart" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('autoStart', setAutoStart)" /></label>
+          <label v-if="supported.autoClose" class="setting-row"><span><strong>登录成功后自动关闭工具</strong><small>只应用于当前游戏</small></span><WinSwitch :model-value="form.autoClose" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('autoClose', toggleAutoClose)" /></label>
           <label v-if="supported.loginDelay" class="field"><span>自动登录延迟（秒）</span><div class="inline"><input v-model.number="form.loginDelay" type="number" min="0" /><button class="ghost" @click="saveDelay"><Save :size="16" />保存</button></div></label>
-          <label v-if="supported.feverBridge && form.feverForceSupported && canUseFeverBridge" class="setting-row"><span><strong>强制此游戏使用平台托管登录</strong><small>覆写当前游戏的默认登录方式判断</small></span><input type="checkbox" :checked="form.feverForced" @change="toggleFeverForced" /></label>
+          <label v-if="supported.feverBridge && form.feverForceSupported && canUseFeverBridge" class="setting-row"><span><strong>强制此游戏使用平台托管登录</strong><small>覆写当前游戏的默认登录方式判断</small></span><WinSwitch :model-value="form.feverForced" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('feverForced', toggleFeverForced)" /></label>
           </template>
         </section>
-      </Transition>
+      </DirectionalTransition>
     </div>
   </ModalShell>
 </template>

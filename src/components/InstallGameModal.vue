@@ -38,7 +38,7 @@ function formatSize(bytes) {
 </script>
 
 <template>
-  <ModalShell :open="open" title="选择安装路径" headerless :dismissible="!busy && !pathBusy" modal-class="install-game-modal" @close="emit('close')">
+  <ModalShell :open="open" smoke-background="transparent" title="选择安装路径" headerless :dismissible="!busy && !pathBusy" modal-class="install-game-modal" @close="emit('close')">
     <section class="install-dialog-content">
       <header class="install-dialog-heading">
         <h2>选择安装路径</h2>

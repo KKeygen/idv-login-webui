@@ -30,10 +30,11 @@ assert.equal(hasKnownInstallCapacity('D:/Games', null), false)
 // Static invariants for lifecycle and stale-response protection. These checks
 // deliberately fail when a future refactor removes a guard without replacing
 // it with an equivalent mechanism.
-requireText('src/App.vue', ['<Transition name="page-change" mode="out-in">'])
+requireText('src/App.vue', ['<FrameTransition>'])
+requireText('src/components/FrameTransition.vue', ['mode="out-in"'])
 requireText('src/components/ModalShell.vue', [
   'isTopModal(modalToken)',
-  '@click.self="requestClose"',
+  '@click="handleBackdropClick"',
   ':disabled="!dismissible"',
   ':style="{ zIndex: modalZIndex }"',
   '@after-leave="handleAfterLeave"',
@@ -70,6 +71,6 @@ requireText('src/components/CloudSyncView.vue', [
   'generation !== probeGeneration',
   ':dismissible="!working"',
 ])
-requireText('scripts/build-standalone.mjs', ["'src/installRequirements.js'", "'src/modalStack.js'"])
+requireText('scripts/build-standalone.mjs', ["visitModule('src/main.js')"])
 
 console.log('Logic invariants checked successfully.')

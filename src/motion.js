@@ -1,4 +1,4 @@
-const REVEAL_SELECTOR = 'button:not([data-reveal="off"]), [data-reveal]:not([data-reveal="off"])'
+const REVEAL_SELECTOR = '[data-reveal="on"]'
 
 /**
  * Fluent/WinUI-style pointer reveal.
@@ -75,4 +75,17 @@ export function installMotionSystem(root = document) {
     if (frame) cancelAnimationFrame(frame)
     clearCurrent()
   }
+}
+
+/** Freeze layout before Vue removes a grid/list item from flow. */
+export function freezeLeavingElement(element) {
+  // Layout dimensions exclude a parent dialog's in-progress scale.
+  const style = getComputedStyle(element)
+  element.style.width = `${parseFloat(style.width) || element.offsetWidth}px`
+  element.style.height = `${parseFloat(style.height) || element.offsetHeight}px`
+  element.style.left = `${element.offsetLeft}px`
+  element.style.top = `${element.offsetTop}px`
+}
+export function clearLeavingElement(element) {
+  for (const name of ['width', 'height', 'left', 'top']) element.style.removeProperty(name)
 }

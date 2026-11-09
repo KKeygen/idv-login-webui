@@ -35,10 +35,23 @@ function gameCacheKey(gameId = '') {
   return shortGameId(gameId)
 }
 
-function notify(message, tone = 'info') {
+const noticeTimers = new Map()
+function dismissNotice(id) {
+  clearTimeout(noticeTimers.get(id))
+  noticeTimers.delete(id)
+  state.notices = state.notices.filter(item => item.id !== id)
+}
+function notify(message, tone = 'info', { title = '', duration } = {}) {
   const id = `${Date.now()}-${Math.random()}`
-  state.notices.push({ id, message, tone })
-  setTimeout(() => { state.notices = state.notices.filter(item => item.id !== id) }, 5000)
+  state.notices.push({ id, title, message, tone })
+  const lifetime = duration ?? (['warning', 'error'].includes(tone) ? 5000 : 3000)
+  if (lifetime > 0) noticeTimers.set(id, setTimeout(() => dismissNotice(id), lifetime))
+  return id
+}
+function reorderRailTabs(keys) {
+  const rank = new Map(keys.map((key, index) => [key, index]))
+  state.railTabs = [...state.railTabs].sort((a, b) => (rank.get(a.key) ?? keys.length) - (rank.get(b.key) ?? keys.length))
+  persistRail()
 }
 
 export function cmpGameId(a = '', b = '') {
@@ -396,7 +409,7 @@ export function useAppStore() {
   return {
     state: readonly(state),
     currentGame: computed(() => state.games.find(item => cmpGameId(item.game_id, state.gameId)) || null),
-    notify, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
+    notify, dismissNotice, reorderRailTabs, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
     setView: view => {
       if (!APP_VIEWS.has(view)) return Promise.resolve(null)
       state.view = view

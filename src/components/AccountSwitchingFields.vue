@@ -1,4 +1,6 @@
 <script setup>
+import WinCheckbox from './WinCheckbox.vue'
+import WinSwitch from './WinSwitch.vue'
 import { computed } from 'vue'
 import { Info, ShieldCheck, ArrowLeftRight, LogOut, ExternalLink } from '@lucide/vue'
 import { openExternal } from '../api'
@@ -30,7 +32,7 @@ function formatTime(value) {
             <tr class="switching-table-group"><th colspan="3" scope="rowgroup"><div><span><strong>{{ gameTitle(game) }}</strong> <span v-if="game.name && game.name !== game.game_id && game.name !== game.short_game_id" class="switching-short-id">{{ game.short_game_id }}</span></span><span class="switching-selected-count">{{ draft.games[game.short_game_id].account_uuids.length }} / {{ game.accounts.length }} 已选</span></div></th></tr>
             <tr v-if="!game.accounts.length"><td colspan="3" class="switching-inline-empty">暂无工具账号</td></tr>
             <tr v-for="account in recentAccounts(game.accounts)" :key="account.uuid" :class="{ selected: draft.games[game.short_game_id].account_uuids.includes(account.uuid) }">
-              <td class="switching-check-cell"><input :id="`switching-account-${game.short_game_id}-${account.uuid}`" type="checkbox" :aria-label="`选择${account.display_name || account.name || '未命名账号'}`" :disabled="disabled" :checked="draft.games[game.short_game_id].account_uuids.includes(account.uuid)" @change="toggleAccount(game.short_game_id, account.uuid)" /></td>
+              <td class="switching-check-cell"><WinCheckbox :id="`switching-account-${game.short_game_id}-${account.uuid}`"  :aria-label="`选择${account.display_name || account.name || '未命名账号'}`" :disabled="disabled" :checked="draft.games[game.short_game_id].account_uuids.includes(account.uuid)" @change="toggleAccount(game.short_game_id, account.uuid)" /></td>
               <td><label :for="`switching-account-${game.short_game_id}-${account.uuid}`">{{ account.display_name || account.name || '未命名账号' }}<span v-if="account.selection_reason" class="switching-account-reason">（{{ account.selection_reason }}）</span></label></td>
               <td class="switching-time-cell">{{ formatTime(account.last_login_time) }}</td>
             </tr>
@@ -42,9 +44,9 @@ function formatTime(value) {
     </section>
 
     <section v-if="section === 'options' || section === 'selection' || section === 'all'" class="switching-options">
-      <label class="switching-option"><input v-model="draft.auto_import_new" type="checkbox" :disabled="disabled" /><span>自动导入后续新登录的账号</span></label>
+      <label class="switching-option"><WinSwitch v-model="draft.auto_import_new"  :disabled="disabled" /><span>自动导入后续新登录的账号</span></label>
       <div class="switching-limit-inline">
-        <label><input v-model="draft.limit_enabled" type="checkbox" :disabled="disabled" /><span>每个游戏显示最近</span></label>
+        <label><WinSwitch v-model="draft.limit_enabled"  :disabled="disabled" /><span>每个游戏显示最近</span></label>
         <input v-model.number="draft.recent_limit" aria-label="每个游戏显示最近几个工具导入账号" type="number" min="1" step="1" :disabled="disabled || !draft.limit_enabled" /><span>个工具导入账号</span>
       </div>
       <p class="switching-option-note">原生账号不计入，不会因此隐藏或删除。</p>

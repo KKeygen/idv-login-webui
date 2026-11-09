@@ -1410,10 +1410,6 @@ button.primary,
 /* Performance and motion pass: keep acrylic on a few large surfaces only,
    then use one compact timing/radius system for every interactive control. */
 :root {
-  --motion-fast: 120ms;
-  --motion-base: 170ms;
-  --motion-slow: 220ms;
-  --motion-ease: cubic-bezier(.2,.8,.2,1);
   --radius-control: 8px;
   --radius-panel: 12px;
   --surface-control: rgba(255,255,255,.07);
@@ -1559,17 +1555,8 @@ button,
   backdrop-filter: none;
 }
 
-/* Navigation and artwork now share the same understated reveal.  The old
-   full-page + image scale animations ran simultaneously and repainted nearly
-   the entire launcher during every game switch. */
-.page-change-enter-active,
-.page-change-leave-active {
-  transition:
-    opacity var(--motion-base) var(--motion-ease),
-    transform var(--motion-base) var(--motion-ease);
-}
-.page-change-enter-from { opacity: 0; transform: translateY(4px); }
-.page-change-leave-to { opacity: 0; transform: translateY(-2px); }
+/* Page transitions live in navigation-transitions.css; artwork retains its
+   independent asynchronous loading and fade behavior. */
 .launcher-view { animation: none; }
 .launcher-hero-image { animation: hero-image-in var(--motion-slow) ease-out both; }
 @keyframes hero-image-in {
@@ -1602,10 +1589,6 @@ button,
   --line: rgba(255,255,255,.0837);
   --muted: rgba(255,255,255,.62);
   --danger: #ff99a4;
-  --motion-fast: 83ms;
-  --motion-base: 167ms;
-  --motion-slow: 250ms;
-  --motion-ease: cubic-bezier(.1,.9,.2,1);
   --radius-control: 8px;
   --radius-panel: 8px;
   --sw-control-fill: rgba(255,255,255,.0605);
@@ -2236,7 +2219,8 @@ input[type="checkbox"]:checked::before {
 }
 .settings-layout {
   width: 100%;
-  min-height: calc(100vh - 60px);
+  /* Fill the page host; the game rail is an overlay, not a 60px layout row. */
+  min-height: 100%;
   grid-template-columns: 220px minmax(0,1fr);
   gap: 0;
   margin: 0;
@@ -2395,12 +2379,12 @@ input[type="checkbox"]:checked::before {
 
 /* Pointer Reveal: a small local light follows the pointer on the active
    control.  The document never receives a full-screen moving gradient. */
-button:not([data-reveal="off"]),
+[data-reveal="on"],
 [data-reveal]:not([data-reveal="off"]) {
   position: relative;
   isolation: isolate;
 }
-button:not([data-reveal="off"])::after,
+[data-reveal="on"]::after,
 [data-reveal]:not([data-reveal="off"])::after {
   content: "";
   position: absolute;
@@ -2462,9 +2446,7 @@ button:hover .animated-settings-icon,
 button:focus-visible .animated-settings-icon { transform: rotate(45deg); }
 button:active .animated-settings-icon { transform: rotate(22deg) scale(.94); }
 
-/* Navigation: the outgoing page stays in place while the new page enters from
-   a restrained 16 px offset. Both are present during the cross-fade, avoiding
-   the blank frame produced by out-in web transitions. */
+/* Page host geometry; motion is owned by navigation-transitions.css. */
 .view-host {
   position: relative;
   z-index: 2;
@@ -2478,25 +2460,7 @@ button:active .animated-settings-icon { transform: rotate(22deg) scale(.94); }
   width: 100%;
   height: 100%;
 }
-.page-change-enter-active {
-  z-index: 2;
-  transition:
-    opacity var(--motion-slow) var(--motion-ease),
-    transform var(--motion-slow) var(--motion-ease);
-}
-.page-change-leave-active {
-  z-index: 1;
-  pointer-events: none;
-  transition: opacity var(--motion-base) linear;
-}
-.page-change-enter-from {
-  opacity: 0;
-  transform: translateX(16px);
-}
-.page-change-leave-to { opacity: 0; }
-
-/* A game/server switch is equivalent to Starward's suppressed navigation: the
-   page itself stays mounted; only the artwork that actually changed fades. */
+/* Legacy image wrappers; asynchronous loaded/failed artwork now lives in MotionImage. */
 .hero-crossfade-enter-active,
 .hero-crossfade-leave-active,
 .background-crossfade-enter-active,
@@ -2517,23 +2481,18 @@ button:active .animated-settings-icon { transform: rotate(22deg) scale(.94); }
 .brand-crossfade-leave-to { opacity: 0; }
 .launcher-hero-image { animation: none !important; }
 
-/* NavigationView sub-pages and wizard steps use a smaller connected animation
-   than full page navigation. */
-.section-change-enter-active,
+/* Legacy wizard-step styling; current wizard motion uses StepTransition. */
 .wizard-step-enter-active {
   transition:
     opacity var(--motion-base) var(--motion-ease),
     transform var(--motion-slow) var(--motion-ease);
 }
-.section-change-leave-active,
 .wizard-step-leave-active {
   transition:
     opacity var(--motion-fast) linear,
     transform var(--motion-base) var(--motion-ease);
 }
-.section-change-enter-from,
 .wizard-step-enter-from { opacity: 0; transform: translateX(12px); }
-.section-change-leave-to,
 .wizard-step-leave-to { opacity: 0; transform: translateX(-6px); }
 .settings-section-host { min-height: 100%; }
 
@@ -2611,17 +2570,7 @@ button:active .animated-settings-icon { transform: rotate(22deg) scale(.94); }
 .list-item-leave-active { position: absolute; }
 .account-list-body { position: relative; }
 
-/* AddDeleteThemeTransition equivalent for in-app notifications. */
-.toast-list-enter-active,
-.toast-list-leave-active,
-.toast-list-move {
-  transition:
-    opacity var(--motion-base) linear,
-    transform var(--motion-slow) var(--motion-ease);
-}
-.toast-list-enter-from,
-.toast-list-leave-to { opacity: 0; transform: translateY(10px); }
-.toast-list-leave-active { position: absolute; width: 100%; }
+/* InfoBar container motion is owned by WinInfoBarStack. */
 
 /* Native-style tooltip timing: reveal after a short hover dwell, disappear
    immediately on exit. */
@@ -2731,8 +2680,6 @@ button .sw-progress-ring { margin-right: 1px; }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal-pointer-active::after { opacity: 0 !important; }
-  .page-change-enter-from,
-  .section-change-enter-from,
   .wizard-step-enter-from,
   .dialog-fade-enter-from .modal,
   .dialog-fade-leave-to .modal,
@@ -2762,7 +2709,6 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 }
 .game-rail-items,
 .game-catalog-grid { position: relative; }
-.catalog-item-leave-active,
 .list-item-leave-active { width: 100%; }
 
 /* 6.3.2 opt-in account switching: one flat surface, compact native tables. */
@@ -2801,9 +2747,12 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 .switching-native-selected small, .switching-native-dropdown small { margin-left: auto; color: #737c8d; font-size: 9px; white-space: nowrap; }
 .switching-native-selected > span:not(.switching-native-dot), .switching-native-dropdown > div > span:not(.switching-native-dot) { min-width: 0; overflow-wrap: anywhere; }
 .switching-game-help { margin-left: 0; line-height: 1.7; }
-.game-catalog-search { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; color: var(--muted); }
+.game-catalog-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin: 0 0 20px; }
+.game-catalog-search { display: flex; flex: 1 1 220px; align-items: center; gap: 10px; min-width: 0; color: var(--muted); }
+.game-catalog-search > svg { flex-shrink: 0; }
+.catalog-import-button { position: relative; flex-shrink: 0; white-space: nowrap; }
+.catalog-import-button .import-task-dot { position: static; flex-shrink: 0; }
 .game-catalog-search input { flex: 1; min-width: 0; }
-.game-catalog-search > span { white-space: nowrap; font-size: 12px; }
 .switching-native-dropdown > .switching-native-other { justify-content: center; border: 0; font-size: 9px; padding: 7px 0 0; }
 .switching-comparison-arrow { color: var(--muted); }
 .switching-footer-note { color: var(--muted); font-size: 12px; }
@@ -2905,5 +2854,4 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 .game-import-candidates, .game-import-results { max-height: 280px; }
 .game-import-status { display: flex; align-items: center; gap: 12px; margin: 22px 0; }
 .game-import-status h3 { margin: 0; }
-.import-game-nav { position: relative; }
 .import-task-dot { position: absolute; top: 8px; right: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }

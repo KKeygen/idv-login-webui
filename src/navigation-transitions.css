@@ -1,0 +1,31 @@
+/* Shared navigation and wizard motion. Layout remains with each surface.
+   These are the effective rules from the native-source alignment baseline;
+   frame WAAPI recipes are kept alongside them in pageTransitionMotion.js. */
+:root { --motion-fast: 83ms; --motion-base: 250ms; --motion-ease: cubic-bezier(0,0,0,1); --motion-slow: 300ms; }
+
+/* Preserve the existing page layering without adding transition wrappers. */
+.page-change-enter-active { z-index: 2; }
+.page-change-leave-active { z-index: 1; }
+
+/* Default Frame: old page opacity out for150ms; then incoming Y140→0 over300ms. */
+.page-change-leave-active, .section-change-leave-active { transition: opacity 150ms cubic-bezier(.7,0,1,.5); pointer-events: none; }
+.page-change-leave-to, .section-change-leave-to { opacity: 0; transform: none; }
+.page-change-enter-active, .section-change-enter-active { transition: transform 300ms cubic-bezier(.1,.9,.2,1); }
+.page-change-enter-from, .section-change-enter-from { opacity: 1; transform: translateY(140px); }
+/* Game settings use a vertical FlipView equivalent; wizards use the same
+   directional contract horizontally. Browser gesture/scroll physics are not WinUI. */
+.flip-forward-enter-active, .flip-back-enter-active, .step-forward-enter-active, .step-back-enter-active { transition: transform 300ms cubic-bezier(.1,.9,.2,1), opacity 150ms linear; }
+.flip-forward-leave-active, .flip-back-leave-active, .step-forward-leave-active, .step-back-leave-active { transition: transform 150ms cubic-bezier(.7,0,1,.5), opacity 150ms linear; pointer-events: none; }
+.flip-forward-enter-from { transform: translateY(100%); opacity: 0; }
+.flip-forward-leave-to { transform: translateY(-30%); opacity: 0; }
+.flip-back-enter-from { transform: translateY(-100%); opacity: 0; }
+.flip-back-leave-to { transform: translateY(30%); opacity: 0; }
+.step-forward-enter-from { transform: translateX(32px); opacity: 0; }
+.step-forward-leave-to { transform: translateX(-16px); opacity: 0; }
+.step-back-enter-from { transform: translateX(-32px); opacity: 0; }
+.step-back-leave-to { transform: translateX(16px); opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-change-enter-from,
+  .section-change-enter-from { transform: none !important; }
+}

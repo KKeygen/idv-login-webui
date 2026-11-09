@@ -1,0 +1,204 @@
+/* Native-source baseline: WinUI 1.8 ba3b6cd9, Starward df8ae07b.
+   Browser implementations approximate native WinUI behavior, not compositor pixels. */
+.sidebar .main-navigation { flex: 1; min-height: 0; align-self: stretch; }
+.sidebar .win-navigation .win-navigation-group { display: flex; flex-direction: column; }
+.sidebar .win-navigation .win-navigation-group.is-footer { margin-top: auto; }
+.sidebar .win-navigation button::before, .settings-subnav .win-navigation button::before, .game-settings-nav .win-navigation button::before { content: none; }
+.sidebar .win-navigation .win-navigation-label { display: none; }
+.sidebar .win-navigation-icon { display: inline-flex; }
+.sidebar .win-navigation .win-navigation-item { flex: 0 0 40px; }
+.settings-subnav .win-navigation, .game-settings-nav .win-navigation { width: 100%; }
+.settings-subnav .win-navigation-item, .game-settings-nav .win-navigation-item { width: 100%; }
+.launcher-view > .launcher-hero-image.motion-image, .workspace > .workspace-tab-background.motion-image { position: absolute; inset: 0; width: 100%; height: 100%; }
+.account-login-capsule .win-select { flex: 1; min-width: 0; }
+.account-login-capsule .win-select { border: 0; border-radius: 22px 0 0 22px; background: transparent; }
+.field > .win-select, .game-import-wizard .win-select { width: 100%; }
+.game-import-wizard .win-select { margin-bottom: 16px; }
+.setting-row .win-switch, .switching-option .win-switch { flex-shrink: 0; }
+.switch-value-label { display: inline-block; margin-left: 8px; font-size: 12px; color: var(--muted); vertical-align: middle; }
+.switching-settings .win-expander-header { margin-left: auto; }
+.switching-settings-body { margin: 0; }
+.game-settings-layout { overflow: hidden; }
+.game-rail { transition: transform 300ms cubic-bezier(.8,0,.2,1); }
+.game-tab:not(.active) .game-tab-icon { opacity: .62; transition: opacity 167ms linear; }
+.game-tab:is(:hover,:focus-visible) .game-tab-icon, .game-tab.active .game-tab-icon { opacity: 1; }
+.rail-pin { margin-left: auto; flex: 0 0 auto; }
+.rail-pin[aria-pressed="true"] { color: var(--accent); }
+.game-tab.is-dragging { opacity: .4; }
+.game-catalog-card { position: relative; overflow: hidden; }
+.catalog-card-brand { position: absolute; inset: 0 0 42px; display: grid; place-items: center; pointer-events: none; opacity: 1; transition: opacity 167ms linear; }
+.catalog-card-brand img { width: 68%; height: 65%; object-fit: contain; }
+.catalog-card-detail { position: absolute; inset: 0 0 42px; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px; background: #151515b3; opacity: 0; transition: opacity 167ms linear; }
+.catalog-card-detail img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; }
+.game-catalog-card:is(:hover,:focus-visible) .catalog-card-brand { opacity: 0; }
+.game-catalog-card:is(:hover,:focus-visible) .catalog-card-detail { opacity: 1; }
+.catalog-distributions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding: 12px; border-radius: 8px; background: #303030; }
+.launch-actions .primary.large { min-height: 44px; height: 44px; min-width: 0; transition: background-color 83ms linear, color 83ms linear; }
+.launcher-controls .download-flyout { transition: none; transform: none; }
+.launcher-controls:is(:hover,:focus-within) .download-flyout { transform: translateY(-4px); }
+.account-list-body { position: relative; }
+.account-list.is-empty { min-height: 0; }
+.list-item-leave-active, .catalog-item-leave-active, .rail-item-leave-active { position: absolute !important; pointer-events: none; }
+.toasts { z-index: 190; }
+.toast { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+.toast > span { flex: 1; min-width: 0; }
+.toast > button { flex: 0 0 auto; }
+input[type="radio"] { appearance: none; width: 20px; min-width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; margin: 0; border-radius: 50%; border: 1px solid #ffffff9c; background: #ffffff0d; display: inline-grid; place-content: center; padding: 0; }
+input[type="radio"]::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: #202020; transform: scale(0); transition: transform 167ms cubic-bezier(0,0,0,1); }
+input[type="radio"]:checked { border-color: var(--accent); background: var(--accent); }
+input[type="radio"]:checked::before { transform: scale(1); }
+input[type="radio"]:active::before { transform: scale(.8); }
+input[type="radio"]:disabled { opacity: .45; }
+:where(button,input,a,[tabindex]):focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; }
+  [class*="-enter-active"], [class*="-leave-active"], [class*="-move"] { transition-duration: 0s !important; animation-duration: 0s !important; }
+  [class*="-enter-from"], [class*="-leave-to"] { transform: none !important; }
+  .game-rail, .catalog-card-brand, .catalog-card-detail, input[type="radio"]::before { transition: none !important; }
+}
+
+.game-catalog-modal { width: min(1100px, calc(100vw - 80px)); max-height: calc(100vh - 100px); }
+.game-catalog-modal .modal-body { padding: 0; }
+.game-catalog-modal .game-catalog-panel { width: 100%; max-height: calc(100vh - 100px); margin: 0; box-shadow: none; border: 0; }
+.game-catalog-entry { min-width: 0; position: relative; height: 145px; }
+.game-catalog-entry .game-catalog-card { display: block; width: 100%; height: 100%; }
+.catalog-version-menu { position: fixed; z-index: 1000; box-sizing: border-box; padding: 4px; overflow: auto; overscroll-behavior: contain; border: 1px solid #00000033; border-radius: 8px; color: #fff; background: transparent; box-shadow: 0 8px 24px #0006; }
+.catalog-version-heading { padding: 8px 12px; color: var(--muted); font-size: 12px; }
+.catalog-version-option { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left; border: 0; border-radius: 4px; background: transparent; color: #fff; font-size: 14px; }
+.catalog-version-option > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.catalog-version-option > small { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
+.catalog-version-option:hover, .catalog-version-option:focus-visible { background: #ffffff0f; }
+.catalog-version-option:focus-visible { outline-offset: -2px; }
+.catalog-version-option:active { background: #ffffff0a; }
+@media (forced-colors: active) { .catalog-version-menu { background: Canvas; color: CanvasText; border-color: CanvasText; } .catalog-version-option { color: CanvasText; } }
+
+.launcher-controls .launch-actions { min-width: 180px; }
+.game-settings-nav .win-navigation-item.is-selected { background: #ffffff0f !important; }
+.game-settings-nav .win-navigation-item:hover { background: #ffffff10 !important; }
+.game-settings-nav .win-navigation-item.is-pressed { background: #ffffff08 !important; }
+
+.game-tab:not(.add-game-tab) { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* Full game selector retains its original workspace-sized surface, not a
+   second ContentDialog card. Shared modal plumbing supplies focus ownership. */
+.modal-backdrop.win-dialog-backdrop > .modal.game-catalog-modal.modal-headerless { position: absolute; backdrop-filter: none; -webkit-backdrop-filter: none; inset: 84px 0 0 56px; width: auto; max-width: none; height: auto; max-height: none; border: 0; border-radius: 0; background: #202020; }
+.game-catalog-modal .modal-body { padding: 24px; overflow: auto; }
+.game-catalog-modal .game-catalog-panel { width: min(1160px,100%); margin: 0 auto; max-height: none; }
+@media (max-width:650px) { .modal-backdrop.win-dialog-backdrop > .modal.game-catalog-modal.modal-headerless { inset: 60px 0 0 56px; } .game-catalog-modal .modal-body { padding: 16px; } }
+
+/* CornerRadius_themeresources.xaml: controls4px, overlay surfaces8px. */
+button.primary:not(.large), button.ghost, button.quiet-button, .inline-command,
+.file-button, .cloud-actions button, .icon-button:not(.game-settings-button),
+.account-icon-action, input:not([type="checkbox"]):not([type="radio"]), textarea,
+.win-select { border-radius: 4px; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus { background: #1e1e1eb3; box-shadow: inset 0 -1px var(--accent); }
+
+/* WinUI generic.xaml: TextControlThemeMinHeight=32, ControlContentThemeFontSize=14.
+   Modern Common_themeresources.xaml overrides padding to 10,5,6,6 (L,T,R,B).
+   Only ordinary single-line text fields: never switches, selection controls,
+   file pickers, or hidden form values. Explicit height prevents a sibling
+   36px button stretching the field; OS font rasterization remains native. */
+:is(input:not([type]), input[type="text"], input[type="search"],
+    input[type="password"], input[type="number"], input[type="email"],
+    input[type="url"], input[type="tel"]) {
+  min-height: 32px;
+  height: 32px;
+  padding: 5px 6px 6px 10px;
+  font-size: 14px;
+  line-height: normal;
+  align-self: center;
+}
+.game-settings-content .field input { min-height: 32px; }
+
+/* Starward MainView.xaml places the game image behind the 56px acrylic pane. */
+.shell > .app-material-background.motion-image { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.win-acrylic-host { isolation: isolate; background: transparent !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+/* MainWindow.xaml: bottom StackPanel, MaxWidth600, Margin24,72,24,72. */
+.toasts { top: auto; right: auto; bottom: 72px; left: 50%; transform: translateX(-50%); width: min(600px,calc(100% - 48px)); max-width: 600px; display: flex; flex-direction: column; gap: 0; }
+
+.news-card.win-acrylic-host { position: relative; }
+
+/* MainView Border_OverlayMask uses CustomAcrylic and default ScalarTransition. */
+.shell > .app-material-mask { position: absolute; inset: 0; pointer-events: none; }
+/* StartGameButton.Popup: no authored transition; Top placement has a 4px gap.
+   This is ControlOnImageFillColorDefaultBrush, not Acrylic or a solid flyout. */
+.launcher-controls .download-flyout {
+  left: 50%; right: auto; bottom: calc(100% + 4px); width: max-content;
+  min-width: 200px; max-width: 260px; padding: 12px 20px; border: 0;
+  border-radius: 8px; background: #1c1c1cb3; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none; transform: translateX(-50%); transition: none;
+}
+.launcher-controls.download-active:is(:hover,:focus-within) .download-flyout { transform: translateX(-50%); }
+.launcher-controls .download-flyout header { padding-bottom: 0; gap: 8px; }
+.launcher-controls .download-flyout header strong { font-size: 14px; font-weight: 700; }
+.launcher-controls .download-flyout .download-elapsed, .launcher-controls .download-flyout .download-remaining { margin-left: 0; }
+.launch-popup-anchor { position: relative; width: 220px; height: 44px; flex: 0 0 auto; }
+.launcher-controls.download-active .launch-popup-anchor .download-flyout { opacity: 0; pointer-events: none; }
+.launcher-controls.download-active .launch-popup-anchor:is(:hover,:focus-within) .download-flyout { opacity: 1; }
+.launcher-controls.download-active .download-toggle .download-collapsed-label { display: grid; }
+.launcher-controls.download-active .download-toggle .download-control-label { display: none; }
+.launcher-controls.download-active .download-toggle:is(:hover,:focus-visible):not(:disabled) .download-collapsed-label { display: none; }
+.launcher-controls.download-active .download-toggle:is(:hover,:focus-visible):not(:disabled) .download-control-label { display: flex; }
+.launcher-controls .download-collapsed-label small { font-size: 12px; font-weight: 400; }
+.launcher-controls .download-collapsed-label > span, .launcher-controls .download-collapsed-label small { gap: 4px; font-size: 12px; }
+/* A scoped ProgressRing position:relative must not override this overlay.
+   StartGameButton.xaml:155-166 uses28px,10px leading margin, centered in44px. */
+.launcher-controls .launch-actions > .download-percent-orb.win-progress-ring {
+  position: absolute; left: 10px; top: 8px; border: 0; background: transparent;
+  --progress-ring-foreground: var(--accent);
+  --progress-ring-background: #1c1c1cb3;
+  --progress-ring-label-size: 12px;
+  --progress-ring-label-color: #ffffffc5;
+}
+.download-stage-separator { height: 1px; margin-top: 8px; background: #ffffff15; }
+.download-stage-block { margin-top: 8px; font-size: 12px; color: #ffffffc9; }
+.download-stage-block > div:first-child, .download-verify-row > span:first-child { display: flex; align-items: center; gap: 4px; }
+.download-stage-values, .download-verify-row { width: 200px; max-width: 100%; display: flex; justify-content: space-between; gap: 8px; }
+.download-stage-values { margin-top: 2px; }
+.download-verify-row { margin-top: 12px; font-size: 12px; color: #ffffffc9; }
+.download-error { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 8px 0 0; font-size: 12px; }
+/* GameSelector keeps all item state backgrounds transparent and fades a black
+   image mask. ScalarTransition defaults:300ms cubic(.8,0,.2,1). */
+.game-rail .game-tab, .game-rail .game-tab:is(:hover,:active,.active) { width: 52px; height: 56px; padding: 8px 6px; background: transparent; border-color: transparent; box-shadow: none; }
+.game-rail .game-tab-icon { position: relative; width: 40px; height: 40px; background: transparent; }
+.game-rail .game-tab .game-tab-icon img, .game-rail .game-tab:is(:hover,.active) .game-tab-icon img { opacity: 1; }
+.game-rail .game-icon-mask { position: absolute; inset: 0; border-radius: inherit; background: #00000060; opacity: 1; transition: opacity 300ms cubic-bezier(.8,0,.2,1); pointer-events: none; }
+.game-rail .game-tab:is(:hover,.active) .game-icon-mask { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .game-rail .game-icon-mask { transition: none; } }
+
+.sidebar.win-acrylic-host { position: relative; }
+.launch-popup-anchor { width: max-content; }
+.launch-actions .capsule-accent { position: absolute; inset: 0; z-index: -1; background: var(--brand-button, #cbad8e); pointer-events: none; border-radius: inherit; }
+.launcher-controls .launch-actions > .primary { position: relative; }
+.launcher-controls .launch-actions > .primary.large, .launcher-controls .launch-actions > .game-settings-button { background: transparent !important; transition: background-color 83ms linear; }
+.launcher-controls .launch-actions > .primary.large:hover:not(:disabled), .launcher-controls .launch-actions > .game-settings-button:hover { background: #ffffff15 !important; }
+.launcher-controls .launch-actions > .primary.large:active:not(:disabled), .launcher-controls .launch-actions > .game-settings-button:active { background: #ffffff08 !important; }
+.launcher-controls .launch-actions > .primary.large:disabled { opacity: 1; background: #ffffff0b !important; color: #ffffff87; }
+.launcher-controls .launch-actions:not(.has-accent) > .primary.large, .launcher-controls .launch-actions:not(.has-accent) > .game-settings-button { color: #ffffff87; }
+.launcher-controls .launch-actions:not(.has-accent) > .primary.large:hover:not(:disabled), .launcher-controls .launch-actions:not(.has-accent) > .game-settings-button:hover { color: var(--accent); }
+/* Existing account rows use modern ListViewItem state resources. This is a
+   Web-business mapping, not a Starward account page. The source style does
+   not set BackgroundTransition; do not carry over an unrelated140ms ease. */
+.account-list .account-list-row { background: transparent; transition: none; }
+.account-list .account-list-row:hover { background: #ffffff0f; }
+.account-list .account-list-row:active { background: #ffffff0a; }
+.account-list .account-list-row.selected { background: #ffffff0f; }
+.account-list .account-list-row.selected:hover { background: #ffffff0a; }
+.account-list .account-list-row.selected:active { background: #ffffff0f; }
+@media (forced-colors: active) { .account-list .account-list-row:is(:hover,:active,.selected) { background: Highlight; color: HighlightText; } }
+.game-rail .game-tab { opacity: 1; }
+.game-rail .game-tab.is-dragging { opacity: .4; }
+.game-rail .game-tab .game-tab-icon { flex: 0 0 40px; opacity: 1; transition: none; }
+.game-rail .game-tab .game-tab-icon img { transition: none; }
+
+.switching-global-actions { display: flex; align-items: center; flex-shrink: 0; gap: 16px; }
+
+.account-default-choice { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--muted); }
+.field.network-mode-field > .win-select { width: min(340px, 100%); }
+.network-mode-description { color: var(--muted); font-size: 13px; line-height: 1.7; min-height: 44px; max-width: 560px; margin: 8px 0 20px; }
+.network-mode-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.network-mode-actions > span { color: var(--muted); font-size: 12px; }

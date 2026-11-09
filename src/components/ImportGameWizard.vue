@@ -1,11 +1,14 @@
 <script setup>
-import { computed } from 'vue'
+import StepTransition from './StepTransition.vue'
+import WinSelect from './WinSelect.vue'
+import { computed, ref } from 'vue'
 import { ArrowLeft, ArrowRight, Check, CircleAlert, FolderOpen } from '@lucide/vue'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { useGameImport } from '../composables/useGameImport'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
+const stepMoving = ref(false)
 const app = useAppStore()
 const importing = useGameImport()
 const state = importing.state
@@ -39,6 +42,7 @@ function titleFor(result) {
 <template>
   <ModalShell :open="importing.supported.value && state.open" title="导入游戏向导" modal-class="account-switching-wizard game-import-wizard" :dismissible="dismissible" @close="importing.close">
     <ol v-if="state.task?.source !== 'startup'" class="switching-stepper" aria-label="导入步骤"><li v-for="(label, index) in steps" :key="label" :class="{ active: index === state.step, done: index < state.step }" :aria-current="index === state.step ? 'step' : undefined"><span><Check v-if="index < state.step" :size="12" /><template v-else>{{ index + 1 }}</template></span>{{ label }}</li></ol>
+    <StepTransition @moving="stepMoving = $event" :step="state.step">
     <div v-if="state.loading" class="content-loading"><MotionProgressRing :size="32" aria-label="正在读取导入状态" /><span>正在读取可导入的游戏与后台任务…</span></div>
     <section v-else-if="state.step === 0" class="switching-game-section">
       <h3>选择已安装的游戏</h3>
@@ -48,7 +52,7 @@ function titleFor(result) {
       </div>
       <template v-if="state.mode === 'manual'">
         <label class="game-import-game-label" for="import-game-id">对应游戏</label>
-        <select id="import-game-id" :value="state.draft.game_id" :disabled="importing.busy.value" @change="importing.setGame($event.target.value)"><option value="" disabled>请选择对应游戏</option><option v-for="game in app.state.games" :key="game.game_id" :value="game.game_id">{{ gameTitle(game) }}</option></select>
+        <WinSelect id="import-game-id" :model-value="state.draft.game_id" :disabled="importing.busy.value" :options="[{value: '', label: '请选择对应游戏', disabled: true}, ...app.state.games.map(game => ({value: game.game_id, label: gameTitle(game)}))]" @change="importing.setGame($event.target.value)" />
         <div class="install-path-field" :class="{ empty: !state.draft.path }"><FolderOpen :size="16" /><span :title="state.draft.path">{{ state.draft.path || '选择游戏的 EXE 启动程序' }}</span><button class="inline-command" :disabled="importing.busy.value" @click="importing.chooseExecutable"><MotionProgressRing v-if="state.picking" :size="14" />{{ state.picking ? '正在选择' : state.draft.path ? '更改' : '选择' }}</button></div>
         <p class="switching-option-note">仅支持 EXE，不支持快捷方式或文件夹。请选择与上方游戏对应的启动程序。</p>
         <p v-if="!app.state.games.length" class="switching-validation">暂时没有可选择的游戏，请确认游戏列表已成功加载。</p>
@@ -69,7 +73,7 @@ function titleFor(result) {
     <section v-else class="switching-game-section" aria-live="polite">
       <p v-if="state.task?.source === 'startup'" class="switching-option-note">工具启动时已自动开始导入，您可以在这里查看进度与结果。</p>
       <div class="game-import-status"><MotionProgressRing v-if="importing.pending.value && state.polling" :size="26" :value="progress" /><Check v-else-if="state.task?.success === true" :size="26" /><CircleAlert v-else :size="26" /><h3>{{ taskTitle }}</h3></div>
-      <p v-if="importing.pending.value" class="switching-option-note">校验可能需要一些时间。可以关闭向导，稍后通过侧栏“导入进度”继续查看。</p>
+      <p v-if="importing.pending.value" class="switching-option-note">校验可能需要一些时间。可以关闭向导，稍后通过游戏库中的“导入已安装游戏”继续查看。</p>
       <p v-if="importing.pending.value && state.task?.total_files > 0" class="switching-option-note">已检查 {{ state.task.completed_files ?? 0 }} / {{ state.task.total_files }} 个文件</p>
       <p v-if="state.task?.cancel_requested" class="switching-option-note">已请求取消，正在等待后台确认。</p>
       <p v-if="state.task?.error" class="switching-validation" role="alert">{{ state.task.error }}</p>
@@ -79,13 +83,14 @@ function titleFor(result) {
       </div>
       <button v-if="state.uncertain || (importing.pending.value && !state.polling)" class="quiet-button" :disabled="importing.busy.value" @click="importing.retryStatus">重新读取任务状态</button>
     </section>
+    </StepTransition>
     <p v-if="state.error" class="switching-validation" role="alert">{{ state.error }}</p>
     <button v-if="state.error && state.step < 2" class="text-button" :disabled="importing.busy.value" @click="importing.readState">重新读取导入来源</button>
     <template #footer>
       <span v-if="state.submitting" class="switching-footer-note" role="status">正在发起后台导入…</span>
       <div class="switching-footer-actions">
-        <template v-if="state.step < 2"><button v-if="state.step === 0" class="quiet-button" :disabled="!dismissible" @click="importing.close">稍后再说</button><button v-else class="quiet-button" :disabled="importing.busy.value" @click="importing.back"><ArrowLeft :size="15" />上一步</button><button v-if="state.step === 0" class="primary" :disabled="!importing.canConfirm.value" @click="importing.next">下一步<ArrowRight :size="15" /></button><button v-else class="primary" :disabled="!importing.canConfirm.value" @click="importing.submit"><MotionProgressRing v-if="state.submitting" :size="16" />开始导入</button></template>
-        <template v-else><button v-if="importing.pending.value && state.task?.cancelable && !state.task.cancel_requested" class="quiet-button" :disabled="importing.busy.value" @click="importing.cancel">取消导入</button><button v-if="state.task?.status === 'done'" class="quiet-button" :disabled="importing.busy.value" @click="importing.continueImport">继续导入其他游戏</button><button class="primary" :disabled="!dismissible" @click="importing.close">{{ importing.pending.value ? '后台继续' : state.uncertain ? '关闭' : '完成' }}</button></template>
+        <template v-if="state.step < 2"><button v-if="state.step === 0" class="quiet-button" :disabled="!dismissible" @click="importing.close">稍后再说</button><button v-else class="quiet-button" :disabled="stepMoving || importing.busy.value" @click="importing.back"><ArrowLeft :size="15" />上一步</button><button v-if="state.step === 0" class="primary" :disabled="stepMoving || !importing.canConfirm.value" @click="importing.next">下一步<ArrowRight :size="15" /></button><button v-else class="primary" :disabled="stepMoving || !importing.canConfirm.value" @click="importing.submit"><MotionProgressRing v-if="state.submitting" :size="16" />开始导入</button></template>
+        <template v-else><button v-if="importing.pending.value && state.task?.cancelable && !state.task.cancel_requested" class="quiet-button" :disabled="stepMoving || importing.busy.value" @click="importing.cancel">取消导入</button><button v-if="state.task?.status === 'done'" class="quiet-button" :disabled="stepMoving || importing.busy.value" @click="importing.continueImport">继续导入其他游戏</button><button class="primary" :disabled="!dismissible" @click="importing.close">{{ importing.pending.value ? '后台继续' : state.uncertain ? '关闭' : '完成' }}</button></template>
       </div>
     </template>
   </ModalShell>

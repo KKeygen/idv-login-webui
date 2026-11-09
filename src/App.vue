@@ -1,10 +1,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Home, Users, Settings, Cloud, WifiOff, CircleHelp, FolderOpen } from '@lucide/vue'
+import { Home, Users, Settings, Cloud, WifiOff, CircleHelp, X } from '@lucide/vue'
 import { openExternal, request, resourceUrl } from './api'
 import { installMotionSystem } from './motion'
+import { useRetainedNavigation } from './composables/useRetainedNavigation'
+import { MAIN_OVERLAY_MOTION } from './pageTransitionMotion'
+import FrameTransition from './components/FrameTransition.vue'
 import { cmpGameId, gameTitle, useAppStore } from './composables/useAppStore'
 import GameRail from './components/GameRail.vue'
+import AnimatedSettingsIcon from './components/AnimatedSettingsIcon.vue'
+import WinNavigation from './components/WinNavigation.vue'
+import MotionImage from './components/MotionImage.vue'
+import AcrylicSurface from './components/AcrylicSurface.vue'
+import WinInfoBarStack from './components/WinInfoBarStack.vue'
 import LauncherView from './components/LauncherView.vue'
 import AccountsView from './components/AccountsView.vue'
 import SettingsView from './components/SettingsView.vue'
@@ -16,6 +24,8 @@ import { useGameImport } from './composables/useGameImport'
 import { useAccountSwitching } from './composables/useAccountSwitching'
 
 const app = useAppStore()
+const viewHost = ref(null)
+useRetainedNavigation(app.state, () => viewHost.value)
 const switching = useAccountSwitching()
 const importing = useGameImport()
 let deferredImportPrompt = false
@@ -74,6 +84,7 @@ const activeGameTitle = computed(() => gameTitle({
   ...app.currentGame.value,
   launcher: activeDistribution.value?.launcher || activeRailLauncher.value?.launcher || app.currentGame.value?.launcher,
 }, app.state.gameId))
+const footerNav = [{ id: 'settings', label: '设置', icon: Settings }]
 const nav = [
   { id: 'launcher', label: '游戏启动器', icon: Home },
   { id: 'accounts', label: '账号管理', icon: Users },
@@ -161,27 +172,21 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
 
 <template>
   <main class="shell">
-    <aside class="sidebar">
+    <MotionImage v-if="activeGameBackground" class="app-material-background" :src="activeGameBackground" aria-hidden="true" />
+    <div class="app-material-mask win-acrylic-host"><AcrylicSurface :visible="app.state.view !== 'launcher'" v-bind="MAIN_OVERLAY_MOTION" /></div>
+    <aside class="sidebar win-acrylic-host">
+      <AcrylicSurface />
       <button class="sidebar-current-game" :title="activeGameTitle" :disabled="!app.state.gameId" @mouseenter="showGameRail" @mouseleave="scheduleGameRailClose" @click="app.setView('launcher')">
         <img v-if="activeGameIcon" :src="activeGameIcon" alt="" />
         <span v-else>{{ activeGameTitle.slice(0, 1) }}</span>
       </button>
-      <nav>
-        <button v-for="item in nav" :key="item.id" class="nav-button" :class="{ active: app.state.view === item.id }" :title="item.label" @click="app.setView(item.id)">
-          <component :is="item.icon" :size="21" /><span>{{ item.label }}</span>
-        </button>
-      </nav>
-      <button v-if="importing.supported.value" class="nav-button import-game-nav" :title="importing.state.task || importing.state.uncertain ? '查看导入进度或结果' : '导入游戏'" @click="importing.openWizard()"><FolderOpen :size="21" /><span>{{ importing.state.task || importing.state.uncertain ? '导入进度' : '导入游戏' }}</span><i v-if="importing.pending.value" class="import-task-dot" aria-label="正在导入"></i></button>
-      <button class="nav-button settings-bottom" :class="{ active: app.state.view === 'settings' }" title="设置" @click="app.setView('settings')"><Settings class="animated-settings-icon" :size="21" /></button>
+      <WinNavigation class="main-navigation" :model-value="app.state.view" :items="nav" :footer-items="footerNav" compact aria-label="主导航" @update:model-value="app.setView">
+        <template #icon="{ item }"><AnimatedSettingsIcon v-if="item.id === 'settings'" :size="20" /><component :is="item.icon" v-else :size="20" :stroke-width="1.5" /></template>
+      </WinNavigation>
     </aside>
 
     <section class="workspace">
-      <template v-if="app.state.view !== 'launcher' && activeGameBackground">
-        <Transition name="background-crossfade">
-          <img :key="activeGameBackground" class="workspace-tab-background" :src="activeGameBackground" alt="" decoding="async" />
-        </Transition>
-        <div class="workspace-tab-background-shade"></div>
-      </template>
+
       <div
         class="top-game-strip"
         aria-hidden="true"
@@ -197,24 +202,22 @@ onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer)
       <div v-if="app.state.connection === 'disconnected'" class="offline-panel">
         <WifiOff :size="34" /><h2>工具后端未连接</h2><p>请确认工具正在运行，然后重试。</p><div class="inline"><button class="primary" @click="reconnect">重新连接</button><button class="ghost" @click="openExternal('https://kkeygenn.feishu.cn/wiki/W3IfwUkUki6cYqkJ5grckRmvnWb')"><CircleHelp :size="17" /> 常见问题</button></div>
       </div>
-      <div v-else class="view-host">
-        <Transition name="page-change" mode="out-in">
+      <div v-else ref="viewHost" class="view-host">
+        <FrameTransition>
           <KeepAlive>
             <component :is="activeViewComponent" :key="app.state.view" />
           </KeepAlive>
-        </Transition>
+        </FrameTransition>
       </div>
     </section>
 
     <Transition name="status-fade">
-      <div v-if="app.state.connection !== 'connected' || app.state.updateRequired" class="status-pill" :class="app.state.connection">
-        <span class="status-dot"></span>
+      <div v-if="app.state.connection !== 'connected' || app.state.updateRequired" class="status-pill win-acrylic-host" :class="app.state.connection">
+        <AcrylicSurface /><span class="status-dot"></span>
         {{ app.state.updateRequired ? '有功能需要更新工具' : app.state.connection === 'connected' ? '工具已连接' : app.state.connection === 'disconnected' ? '工具未连接' : '正在连接' }}
       </div>
     </Transition>
-    <TransitionGroup name="toast-list" tag="div" class="toasts">
-      <div v-for="notice in app.state.notices" :key="notice.id" class="toast" :class="notice.tone">{{ notice.message }}</div>
-    </TransitionGroup>
+    <WinInfoBarStack :notices="app.state.notices" @close="app.dismissNotice" />
     <AccountSwitchingWizard v-if="switching.supported.value" />
     <ImportGameWizard v-if="importing.supported.value" />
     <AppDialogHost />

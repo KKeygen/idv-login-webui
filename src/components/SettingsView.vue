@@ -1,4 +1,8 @@
 <script setup>
+import FrameTransition from './FrameTransition.vue'
+import WinNavigation from './WinNavigation.vue'
+import WinSwitch from './WinSwitch.vue'
+import WinSelect from './WinSelect.vue'
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, openExternal, request } from '../api'
@@ -13,6 +17,8 @@ import MotionProgressRing from './MotionProgressRing.vue'
 const app = useAppStore()
 const supportsNewFeatures = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
 const switching = useAccountSwitching()
+const switchingBusy = ref(false)
+const switchingFeedback = ref('')
 const activeSection = ref('general')
 const sections = [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
@@ -90,6 +96,7 @@ async function load() {
         if (error instanceof ApiError && error.status === 404) return null
         throw error
       }),
+      switching.state.saving ? Promise.resolve(null) : switching.load({ force: true }),
     ])
     if (scan.status === 'fulfilled' && scan.value && 'enabled' in scan.value) form.scanRecord = Boolean(scan.value.enabled)
     if (form.nativeSupported && native.status === 'fulfilled' && native.value && 'enabled' in native.value) form.nativeSave = Boolean(native.value.enabled)
@@ -114,6 +121,19 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+async function toggleAccountSync(enabled) {
+  if (switchingBusy.value || switching.state.saving || !switching.state.loaded) return
+  switchingBusy.value = true
+  switchingFeedback.value = ''
+  try {
+    if (await switching.save({ ...switching.state.config, enabled })) {
+      switchingFeedback.value = '已保存，下次启动工具时应用。各游戏的账号选择仍会保留。'
+    } else {
+      const current = await switching.load({ force: true })
+      switchingFeedback.value = current ? '更新未获确认，已重新读取设置，请核对后再操作。' : '无法确认更新结果，请重新读取设置。'
+    }
+  } finally { switchingBusy.value = false }
 }
 async function toggleDebug(event) {
   event.target.checked = form.debugEnabled
@@ -263,6 +283,10 @@ function setNews() {
   localStorage.setItem('idv.news.visible', String(form.newsVisible))
   app.notify('新闻显示设置已保存', 'success')
 }
+// A direct settings URL can mount before health establishes the backend version.
+watch(switching.supported, supported => {
+  if (supported && !switching.state.loaded && !switching.state.loading && !switching.state.saving) switching.load()
+}, { immediate: true })
 onMounted(load)
 onActivated(() => {
   viewActive = true
@@ -284,31 +308,27 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
     <div class="settings-layout">
       <aside class="settings-subnav glass">
         <header><p class="eyebrow">偏好设置</p><h1>应用设置</h1></header>
-        <nav>
-          <button v-for="section in sections" :key="section.id" :class="{ active: activeSection === section.id }" @click="activeSection = section.id">
-            <component :is="section.icon" :size="20" />
-            <span><strong>{{ section.label }}</strong></span>
-          </button>
-        </nav>
+        <WinNavigation v-model="activeSection" :items="sections" aria-label="应用设置分类" />
       </aside>
 
       <section class="settings-content">
-        <Transition name="section-change" mode="out-in">
+        <FrameTransition scope="section">
           <div :key="activeSection" class="settings-section-host">
             <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
             <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
             <div v-else-if="loadError && activeSection !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
             <article v-else-if="activeSection === 'general'" class="settings-card glass">
           <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div><button class="text-button" :disabled="Boolean(saving)" @click="load">重新读取</button></header>
-          <label v-if="form.scanSupported" class="setting-row"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><input type="checkbox" :checked="form.scanRecord" :disabled="Boolean(saving)" @change="toggleScan" /></label>
-          <label v-if="form.nativeSupported" class="setting-row"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><input type="checkbox" :checked="form.nativeSave" :disabled="!form.scanRecord || Boolean(saving)" @change="toggleNative" /></label>
-          <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>游戏内切换渠道服账号</strong><small>选择游戏和账号，随时开启或重新配置</small></span><button class="quiet-button" :disabled="switching.state.saving" @click="switching.openWizard">打开配置向导</button></div>
-          <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><input v-model="form.newsVisible" type="checkbox" @change="setNews" /></label>
+          <label v-if="form.scanSupported" class="setting-row" for="settingsview-field-1"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><WinSwitch id="settingsview-field-1" :model-value="form.scanRecord" :disabled="Boolean(saving)" @change="(next, event) => toggleScan(event)" /></label>
+          <label v-if="form.nativeSupported" class="setting-row" for="settingsview-field-2"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><WinSwitch id="settingsview-field-2" :model-value="form.nativeSave" :disabled="!form.scanRecord || Boolean(saving)" @change="(next, event) => toggleNative(event)" /></label>
+          <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>同步游戏内的账号</strong><small>{{ switching.state.loaded ? '全局开关影响所有游戏；各游戏的账号选择在账号管理中修改。' : (switching.state.error || '正在读取设置…') }}</small><small v-if="switchingFeedback" role="status">{{ switchingFeedback }}</small></span><div class="switching-global-actions"><WinSwitch v-if="switching.state.loaded && (switching.state.config.onboarding_completed || switching.state.config.enabled)" aria-label="全局启用游戏内账号同步" :model-value="switching.state.config.enabled" :disabled="switchingBusy || switching.state.saving || switching.state.loading" @change="toggleAccountSync" /><button class="quiet-button" :disabled="switchingBusy || switching.state.saving || switching.state.loading" @click="switching.openWizard">打开配置向导</button></div></div>
+          <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><WinSwitch v-model="form.newsVisible" @change="setNews" /></label>
         </article>
         <article v-else-if="activeSection === 'network'" class="settings-card glass">
           <header><Network :size="20" /><div><h2>代理模式</h2><p>修改后通常需要重启工具。</p></div></header>
-          <label class="field"><span class="field-label-with-help">网络接管方式 <HelpTip text="全局代理使用系统代理接管相关请求；仅游戏进程将影响限制在游戏及登录组件；兼容模式使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。修改后需重启工具才能完整生效。" /></span><select v-model="form.proxyMode" :disabled="Boolean(saving)"><option value="global">全局代理</option><option value="process">仅游戏进程</option><option value="compat">兼容模式</option></select></label>
-          <button class="primary wide" :disabled="Boolean(saving)" @click="setProxy">保存代理模式</button>
+          <label class="field network-mode-field" for="settingsview-field-3"><span>网络接管方式</span><WinSelect id="settingsview-field-3" v-model="form.proxyMode" :disabled="Boolean(saving)" :options="[{value: 'global',label: '全局代理'},{value: 'process',label: '仅游戏进程'},{value: 'compat',label: '兼容模式'}]" aria-label="网络接管方式" aria-describedby="network-mode-description" /></label>
+          <p id="network-mode-description" class="network-mode-description">{{ { global: '使用系统代理接管相关请求。', process: '将网络接管范围限制在游戏及登录组件。', compat: '使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。' }[form.proxyMode] }}</p>
+          <div class="network-mode-actions"><span>选择后保存，重启工具后完整生效。</span><button class="primary" :disabled="Boolean(saving)" @click="setProxy">保存代理模式</button></div>
         </article>
         <article v-else class="settings-card diagnostics-panel">
           <header><FileText :size="20" /><div><h2>诊断工具</h2><p>查看实时输出或导出完整日志，方便定位运行问题。</p></div></header>
@@ -320,7 +340,7 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
 
           <label v-if="supportsNewFeatures && form.debugSupported" class="setting-row">
             <span><strong>调试模式</strong><small>{{ form.debugEnabled ? (form.debugUploadEnabled ? '已开启，运行日志会上传' : '已开启本地调试，当前版本不上传') : (form.debugUploadSupported ? '默认关闭；更改后需要重启' : '默认关闭；当前版本仅本地调试') }}</small></span>
-            <input type="checkbox" :checked="form.debugEnabled" :disabled="Boolean(saving)" @change="toggleDebug" />
+            <WinSwitch :model-value="form.debugEnabled" :disabled="Boolean(saving)" @change="(next, event) => toggleDebug(event)" />
           </label>
           <div v-else-if="supportsNewFeatures" class="setting-row"><span><strong>调试模式</strong><small>{{ debugLoadError ? '读取失败，请重新读取设置' : '当前工具版本不支持此设置' }}</small></span><button v-if="debugLoadError" class="quiet-button" :disabled="Boolean(saving)" @click="load">重新读取</button></div>
 
@@ -345,7 +365,7 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
           </section>
             </article>
           </div>
-        </Transition>
+        </FrameTransition>
       </section>
     </div>
   </section>

@@ -1,6 +1,11 @@
 <script setup>
+import MotionImage from './MotionImage.vue'
+import { downloadPresentation } from '../downloadPresentation'
+import { formatSize, parseDownloadRate, formatDuration } from '../launcherFormatting'
+import LauncherControls from './LauncherControls.vue'
+import LauncherNewsPanel from './LauncherNewsPanel.vue'
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
-import { Clock3, Download, FolderOpen, PackageOpen, Pause, Play, Settings, Newspaper, ShieldCheck } from '@lucide/vue'
+import { Clock3, Download, FolderOpen, Pause, Play } from '@lucide/vue'
 import { openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { supportsNextFeverFeatures } from '../featureVersions'
@@ -51,6 +56,7 @@ const installRequirements = computed(() => distribution.value?.install_requireme
 const requiredInstallBytes = computed(() => resolveRequiredInstallBytes(installRequirements.value))
 const downloadActive = computed(() => Boolean(activeTaskId.value && downloadStatus.value?.status === 'pending'))
 const downloadPaused = computed(() => Number(downloadStatus.value?.state) === 6 || String(downloadStatus.value?.phase || '') === '下载已暂停')
+const downloadDeterminate = computed(() => [3, 4, 5, 6].includes(Number(downloadStatus.value?.state)) && Number.isFinite(Number(downloadStatus.value?.progress_percent ?? NaN)))
 const downloadPercent = computed(() => Math.max(0, Math.min(100, Number(downloadStatus.value?.progress_percent) || 0)))
 const downloadEtaSupported = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
 const downloadRemaining = computed(() => {
@@ -69,7 +75,17 @@ const downloadElapsed = computed(() => {
   const startedAt = Number(downloadStatus.value?.created_at) * 1000
   return formatDuration(startedAt ? Math.max(0, now.value - startedAt) : 0)
 })
+const downloadDisplay = computed(() => downloadPresentation(downloadStatus.value || {}, controlPending.value))
 const downloadStages = computed(() => downloadStatus.value?.stages || {})
+const downloadVisual = computed(() => downloadActive.value ? {
+  display: downloadDisplay.value,
+  percent: downloadPercent.value,
+  determinate: downloadDeterminate.value,
+  etaSupported: downloadEtaSupported.value,
+  remaining: downloadRemaining.value,
+  stages: downloadStages.value,
+  error: downloadStatus.value?.error,
+} : null)
 const sharedLauncher = computed(() => ({
   ...(app.currentGame.value?.launcher || {}),
   ...(app.state.launcherVisual || {}),
@@ -141,7 +157,6 @@ async function refreshIfCurrent(scope) {
   if (selectionMatches(scope)) await app.refreshCurrent()
 }
 
-function formatNewsDate(value) { return value ? new Date(Number(value) * 1000).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '' }
 watch(distributions, list => {
   const preferred = app.state.launcher?.game?.default_distribution
   if (!list.some(item => String(item.distribution_id) === app.state.distributionId)) app.setDistribution(list.find(item => item.distribution_id === preferred)?.distribution_id ?? list[0]?.distribution_id ?? '')
@@ -266,8 +281,8 @@ async function monitorDownload(taskId, initial = {}) {
 }
 
 async function toggleDownload() {
-  if (!downloadActive.value || controlPending.value) return
-  const action = downloadPaused.value ? 'resume' : 'pause'
+  if (!downloadActive.value || controlPending.value || !downloadDisplay.value.action) return
+  const action = downloadDisplay.value.action
   controlPending.value = action
   downloadStatus.value = {
     ...downloadStatus.value,
@@ -430,29 +445,6 @@ async function locateFromSettings() { gameSettingsOpen.value = false; await loca
 async function importFeverFromSettings() { gameSettingsOpen.value = false; await importFever() }
 async function importFeverListFromSettings() { gameSettingsOpen.value = false; await importFeverList() }
 function toggleNews() { showNews.value = !showNews.value; localStorage.setItem('idv.news.visible', String(showNews.value)) }
-function formatSize(bytes) { if (!bytes) return '0 B'; const i = Math.floor(Math.log(bytes) / Math.log(1024)); return `${(bytes / 1024 ** i).toFixed(1)} ${['B','KB','MB','GB','TB'][i]}` }
-function parseDownloadRate(value) {
-  // downloadIPC's HumanizeBytes uses powers of 1024 for KB/MB/... .
-  const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)\s*(B|[KMGTPE]i?B)\s*\/\s*s$/)
-  if (!match) return 0
-  const rate = Number(match[1]) * 1024 ** ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'].indexOf(match[2].replace('i', ''))
-  return Number.isFinite(rate) && rate > 0 ? rate : 0
-}
-function formatDuration(milliseconds) {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000))
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const rest = seconds % 60
-  return [hours, minutes, rest].map(value => String(value).padStart(2, '0')).join(':')
-}
-function stageAmount(stage = {}) {
-  if (Number(stage.total_bytes) > 0) return `${formatSize(stage.completed_bytes || 0)}/${formatSize(stage.total_bytes)}`
-  return `${Math.round(Number(stage.percent) || 0)}%`
-}
-function stageRate(stage = {}) {
-  const rate = String(stage.rate || '')
-  return rate && rate !== 'N/A' ? rate : '—'
-}
 function downloadPhaseLabel(phase, fallback = '正在处理…') {
   const key = String(phase || '').trim()
   const labels = {
@@ -475,9 +467,7 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
 
 <template>
   <section class="launcher-view">
-    <Transition name="hero-crossfade">
-      <img v-if="hero" :key="hero" class="launcher-hero-image" :class="{ 'is-easter-hidden': easterFrameReady }" :src="hero" alt="" decoding="async" fetchpriority="high" />
-    </Transition>
+    <MotionImage class="launcher-hero-image" :class="{ 'is-easter-hidden': easterFrameReady }" :src="hero" />
     <div class="hero-shade" :class="{ 'is-easter-hidden': easterFrameReady }"></div>
     <button
       v-if="hero && !easterFrameSrc"
@@ -508,51 +498,28 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
     </section>
 
     <div class="launcher-bottom">
-      <Transition name="panel-reveal">
-        <section v-if="showNews" class="news-card glass">
-        <img v-if="newsCover" class="news-cover" :src="newsCover" alt="" width="470" height="176" loading="lazy" decoding="async" />
-        <header><div><Newspaper :size="18" /> 新闻</div><button class="ghost compact" @click="toggleNews">隐藏</button></header>
-        <template v-if="news.length"><a v-for="item in news.slice(0, 3)" :key="item.id || item.url || item.title" href="#" @click.prevent="openExternal(item.url)"><span>{{ item.title }}</span><time>{{ formatNewsDate(item.release_time) }}</time></a><button v-if="newsMoreUrl" class="news-more" @click="openExternal(newsMoreUrl)">查看更多</button></template>
-        <p v-else class="muted">当前游戏暂无新闻。可在设置中隐藏此面板。</p>
-        </section>
-      </Transition>
+      <LauncherNewsPanel :visible="showNews" :cover="newsCover" :items="news" :more-url="newsMoreUrl" @hide="toggleNews" @open="openExternal" />
 
-      <div class="launcher-controls" :class="{ 'download-active': downloadActive }">
-        <section v-if="downloadActive" class="download-flyout">
-          <header>
-            <strong>{{ downloadPaused ? '已暂停' : '下载中' }}</strong>
-            <span>{{ downloadPercent.toFixed(1) }}%</span>
-            <span v-if="downloadEtaSupported" class="download-remaining" title="当前阶段的预估剩余时间，不含后续阶段；随实时进度和速率更新"><Clock3 :size="14" />{{ downloadRemaining }}</span>
-            <span v-else class="download-elapsed"><Clock3 :size="14" />{{ downloadElapsed }}</span>
-          </header>
-          <small>{{ downloadPhaseLabel(downloadStatus?.phase, '正在处理游戏文件…') }}</small>
-          <div class="download-stage-row"><Download :size="17" /><span>下载</span><b>{{ stageAmount(downloadStages.download) }}</b><em>{{ stageRate(downloadStages.download) }}</em></div>
-          <div class="download-stage-row"><PackageOpen :size="17" /><span>安装</span><b>{{ stageAmount(downloadStages.install) }}</b><em>{{ stageRate(downloadStages.install) }}</em></div>
-          <div class="download-stage-row"><ShieldCheck :size="17" /><span>校验</span><b>{{ stageAmount(downloadStages.verify) }}</b><em>{{ stageRate(downloadStages.verify) }}</em></div>
-        </section>
-        <div class="launch-actions" :class="{ 'has-download': downloadActive }" :style="brandButtonStyle">
-          <MotionProgressRing
-            v-if="downloadActive"
-            class="download-percent-orb"
-            :size="30"
-            :value="downloadPercent"
-            :label="Math.floor(downloadPercent)"
-            aria-label="游戏下载进度"
-          />
-          <button v-if="downloadActive" class="primary large download-toggle" :disabled="Boolean(controlPending)" @click="toggleDownload">
-            <span class="download-collapsed-label"><span><Download :size="18" />下载中</span><small><Clock3 :size="13" />{{ downloadEtaSupported ? downloadRemaining : downloadElapsed }}</small></span>
-            <span class="download-control-label"><Play v-if="downloadPaused" :size="18" /><Pause v-else :size="18" />{{ controlPending === 'pause' ? '正在暂停' : controlPending === 'resume' ? '正在恢复' : downloadPaused ? '继续下载' : '暂停' }}</span>
+      <LauncherControls
+        :download="downloadVisual"
+        :accent="!downloadActive && launcherReady && !app.state.busy"
+        :brand-style="brandButtonStyle"
+        :locate-visible="!installed && !canImportFever && Boolean(distribution?.can_download)"
+        :locate-disabled="Boolean(app.state.busy)"
+        @settings="gameSettingsOpen = true"
+        @locate="locate"
+      >
+          <button v-if="downloadActive" class="primary large download-toggle" :disabled="Boolean(controlPending) || !downloadDisplay.action" @click="toggleDownload">
+            <span class="download-collapsed-label"><span><Download v-if="downloadDisplay.transferring" :size="12" />{{ downloadDisplay.label }}</span><small v-if="downloadDisplay.transferring && downloadEtaSupported"><Clock3 :size="12" />{{ downloadRemaining }}</small></span>
+            <span class="download-control-label"><Play v-if="downloadDisplay.action === 'resume'" :size="18" /><Pause v-else-if="downloadDisplay.action === 'pause'" :size="18" />{{ downloadDisplay.actionLabel }}</span>
           </button>
-          <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="18" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
+          <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="20" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
           <button v-else-if="(installed && needsUpdate) || canRepairMissing" class="primary large" :disabled="Boolean(app.state.busy)" @click="update"><MotionProgressRing v-if="app.state.busy === 'update'" :size="18" :aria-label="canRepairMissing ? '正在修复游戏' : '正在更新游戏'" /><Download v-else />{{ app.state.busy === 'update' ? (canRepairMissing ? '正在修复…' : '正在更新…') : canRepairMissing ? '修复游戏' : '更新游戏' }}</button>
-          <button v-else-if="installed" class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><MotionProgressRing v-if="app.state.busy === 'start'" :size="18" aria-label="正在启动游戏" /><Play v-else />{{ app.state.busy === 'start' ? '正在启动…' : '开始游戏' }}</button>
-          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="18" aria-label="正在导入游戏" /><Download v-else />{{ app.state.busy === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
+          <button v-else-if="installed" class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><MotionProgressRing v-if="app.state.busy === 'start'" :size="20" aria-label="正在启动游戏" /><Play v-else />{{ app.state.busy === 'start' ? '正在启动…' : '开始游戏' }}</button>
+          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="20" aria-label="正在导入游戏" /><Download v-else />{{ app.state.busy === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
           <button v-else-if="distribution?.can_download" class="primary large" :disabled="Boolean(app.state.busy)" @click="openInstall"><Download />下载游戏</button>
-          <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(app.state.busy)" :size="18" aria-label="正在定位游戏" /><FolderOpen v-else />{{ ['pick-game', 'locate-game'].includes(app.state.busy) ? '正在定位…' : '选择游戏路径' }}</button>
-          <button class="icon-button game-settings-button" title="游戏设置" @click="gameSettingsOpen = true"><Settings class="animated-settings-icon" /></button>
-        </div>
-        <button v-if="!installed && !canImportFever && distribution?.can_download" class="locate-existing" :disabled="Boolean(app.state.busy)" @click="locate"><FolderOpen :size="15" /> 已有游戏文件？选择游戏路径</button>
-      </div>
+          <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(app.state.busy)" :size="20" aria-label="正在定位游戏" /><FolderOpen v-else />{{ ['pick-game', 'locate-game'].includes(app.state.busy) ? '正在定位…' : '选择游戏路径' }}</button>
+      </LauncherControls>
     </div>
 
     <InstallGameModal

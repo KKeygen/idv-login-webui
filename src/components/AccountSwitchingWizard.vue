@@ -1,4 +1,6 @@
 <script setup>
+import WinCheckbox from './WinCheckbox.vue'
+import StepTransition from './StepTransition.vue'
 import { computed, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Check, ChevronDown, UserRound, CircleX, QrCode, Smartphone, Mail, Gamepad2, MousePointer2 } from '@lucide/vue'
 import { ACCOUNT_SWITCHING_GAME_HELP, createSwitchingDraft, validateSwitchingDraft } from '../accountSwitching'
@@ -11,6 +13,7 @@ import MotionProgressRing from './MotionProgressRing.vue'
 import AccountSwitchingFields from './AccountSwitchingFields.vue'
 import MaskedGameLogo from './MaskedGameLogo.vue'
 
+const stepMoving = ref(false)
 const app = useAppStore()
 const switching = useAccountSwitching()
 const step = ref(0)
@@ -18,7 +21,7 @@ const draft = ref(createSwitchingDraft())
 const steps = ['功能介绍', '选择游戏', '账号与偏好', '更多说明']
 const selectedCount = computed(() => switching.state.games.filter(game => draft.value.games[game.short_game_id]?.enabled).length)
 const validation = computed(() => step.value === 2 ? validateSwitchingDraft({ ...draft.value, enabled: false }, switching.state.games) : '')
-const ready = computed(() => switching.state.loaded && !switching.state.loading && !switching.state.saving)
+const ready = computed(() => !stepMoving.value && switching.state.loaded && !switching.state.loading && !switching.state.saving)
 let draftInitialized = false
 watch(() => switching.state.open, open => {
   if (!open) return
@@ -62,6 +65,7 @@ function next() {
     <div v-else-if="!switching.state.loaded" class="switching-load-error" role="alert"><p>{{ switching.state.error || '暂时无法读取账号切换设置' }}</p><button class="quiet-button" @click="switching.load({ force: true })">重新读取</button></div>
     <template v-else>
       <ol class="switching-stepper" aria-label="配置步骤"><li v-for="(label, index) in steps" :key="label" :class="{ active: index === step, done: index < step }" :aria-current="index === step ? 'step' : undefined"><span><Check v-if="index < step" :size="12" /><template v-else>{{ index + 1 }}</template></span>{{ label }}</li></ol>
+      <StepTransition @moving="stepMoving = $event" :step="step">
       <div v-if="step === 0" class="switching-intro">
         <p class="switching-lead">常用账号，在游戏内直接选</p>
         <div class="switching-comparison" aria-label="现在在扫码界面点击游戏图标切换；开启后直接在游戏账号列表中选择">
@@ -105,7 +109,7 @@ function next() {
             <thead><tr><th class="switching-check-cell" scope="col">选择</th><th scope="col">游戏</th><th class="switching-count-cell" scope="col">工具账号</th><th class="switching-count-cell" scope="col">原生账号</th></tr></thead>
             <tbody>
               <tr v-for="game in switching.state.games" :key="game.short_game_id" :class="{ selected: draft.games[game.short_game_id]?.enabled }">
-                <td class="switching-check-cell"><input :id="`switching-game-${game.short_game_id}`" v-model="draft.games[game.short_game_id].enabled" type="checkbox" :aria-label="`选择${gameTitle(game)}`" :disabled="switching.state.saving" /></td>
+                <td class="switching-check-cell"><WinCheckbox :id="`switching-game-${game.short_game_id}`" v-model="draft.games[game.short_game_id].enabled"  :aria-label="`选择${gameTitle(game)}`" :disabled="switching.state.saving" /></td>
                 <td><label :for="`switching-game-${game.short_game_id}`" class="switching-table-game-label"><strong>{{ gameTitle(game) }} <span v-if="game.name && game.name !== game.game_id && game.name !== game.short_game_id" class="switching-short-id">{{ game.short_game_id }}</span></strong></label></td>
                 <td class="switching-count-cell">{{ game.tool_account_count ?? game.accounts.length }}</td><td class="switching-count-cell">{{ game.native_account_count ?? '未知' }}</td>
               </tr>
@@ -116,6 +120,7 @@ function next() {
       </section>
       <AccountSwitchingFields v-else :draft="draft" :games="switching.state.games" :section="step === 2 ? 'selection' : 'info'" :disabled="switching.state.saving" />
       <p v-if="step === 3" class="switching-option-note">您需要重启工具才能使此修改生效</p>
+      </StepTransition>
       <p v-if="validation" class="switching-validation" role="alert">{{ validation }}</p>
       <p v-if="switching.state.error" class="switching-validation" role="alert">{{ switching.state.error }}</p>
     </template>
