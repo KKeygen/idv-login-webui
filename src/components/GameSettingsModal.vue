@@ -219,7 +219,7 @@ async function createShortcut() {
         </div>
 
         <div class="game-settings-actions">
-          <button v-if="(installed || canRepairMissing) && distribution?.can_update" class="quiet-button accent" @click="emit('update')"><Download :size="15" />{{ canRepairMissing || !needsUpdate ? '修复游戏' : '更新游戏' }}</button>
+          <button v-if="(installed || canRepairMissing) && distribution?.can_update" class="quiet-button accent" @click="emit('update', { repair: canRepairMissing || !needsUpdate })"><Download :size="15" />{{ canRepairMissing || !needsUpdate ? '修复游戏' : '更新游戏' }}</button>
           <button v-if="installed" class="quiet-button" @click="createShortcut"><Link :size="15" />创建桌面快捷方式</button>
           <button v-if="canImportFever" class="quiet-button" @click="emit('import-fever')"><Download :size="15" />从发烧平台导入</button>
           <button v-if="app.state.launcher?.platform_type === 'fever'" class="quiet-button" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>

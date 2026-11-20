@@ -4,7 +4,7 @@ import WinSelect from './WinSelect.vue'
 import { computed, ref } from 'vue'
 import { ArrowLeft, ArrowRight, Check, CircleAlert, FolderOpen } from '@lucide/vue'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
-import { useGameImport } from '../composables/useGameImport'
+import { postImportMessage, useGameImport } from '../composables/useGameImport'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
@@ -13,7 +13,7 @@ const app = useAppStore()
 const importing = useGameImport()
 const state = importing.state
 const steps = ['选择来源', '确认导入', '进度与结果']
-const phaseLabels = { preparing: '正在准备导入', checking: '正在校验游戏文件', saving: '正在保存安装记录', finished: '导入已完成', failed: '导入未完成', cancelled: '导入已取消' }
+const phaseLabels = { preparing: '正在准备导入', checking: '正在读取安装状态', saving: '正在保存安装记录', finished: '导入已完成', failed: '导入未完成', cancelled: '导入已取消' }
 const selectedGame = computed(() => app.state.games.find(game => cmpGameId(game.game_id, state.draft.game_id)))
 const selectedTitle = computed(() => state.draft.display_name || gameTitle(selectedGame.value || {}, state.draft.game_id))
 const taskTitle = computed(() => {
@@ -68,18 +68,18 @@ function titleFor(result) {
     <section v-else-if="state.step === 1" class="switching-game-section">
       <h3>确认导入信息</h3>
       <dl class="game-import-summary"><dt>游戏</dt><dd>{{ selectedTitle }}</dd><dt>来源</dt><dd>{{ state.draft.source === 'fever' ? '发烧游戏平台' : '手动选择 EXE' }}</dd><dt>路径</dt><dd>{{ state.draft.path }}</dd></dl>
-      <p class="switching-option-note">确认后将由工具在后台校验文件并保存安装记录。关闭向导不会停止已开始的导入。</p>
+      <p class="switching-option-note">确认后将读取安装状态并保存记录。若版本未知但分发可确认，导入后会另外排队修复。关闭向导不会停止已开始的导入。</p>
     </section>
     <section v-else class="switching-game-section" aria-live="polite">
       <p v-if="state.task?.source === 'startup'" class="switching-option-note">工具启动时已自动开始导入，您可以在这里查看进度与结果。</p>
       <div class="game-import-status"><MotionProgressRing v-if="importing.pending.value && state.polling" :size="26" :value="progress" /><Check v-else-if="state.task?.success === true" :size="26" /><CircleAlert v-else :size="26" /><h3>{{ taskTitle }}</h3></div>
-      <p v-if="importing.pending.value" class="switching-option-note">校验可能需要一些时间。可以关闭向导，稍后通过游戏库中的“导入已安装游戏”继续查看。</p>
+      <p v-if="importing.pending.value" class="switching-option-note">读取安装状态可能需要一些时间。可以关闭向导，稍后通过游戏库中的“导入已安装游戏”继续查看。</p>
       <p v-if="importing.pending.value && state.task?.total_files > 0" class="switching-option-note">已检查 {{ state.task.completed_files ?? 0 }} / {{ state.task.total_files }} 个文件</p>
       <p v-if="state.task?.cancel_requested" class="switching-option-note">已请求取消，正在等待后台确认。</p>
       <p v-if="state.task?.error" class="switching-validation" role="alert">{{ state.task.error }}</p>
       <dl v-if="state.task?.path || state.uncertain" class="game-import-summary"><dt>路径</dt><dd>{{ state.task?.path || state.draft.path }}</dd></dl>
       <div v-if="results.length" class="switching-table-wrap game-import-results">
-        <table class="switching-table" aria-label="导入结果"><thead><tr><th scope="col">游戏</th><th scope="col">结果</th></tr></thead><tbody><tr v-for="(result, index) in results" :key="`${result.game_id}:${result.installation_id || index}`"><td>{{ titleFor(result) }}<small v-if="result.path">{{ result.path }}</small></td><td>{{ result.success === true ? '已导入' : result.cancelled ? '已取消' : '未导入' }}<small v-if="result.version">已确认版本：{{ result.version }}</small><small v-if="result.error">{{ result.error }}</small></td></tr></tbody></table>
+        <table class="switching-table" aria-label="导入结果"><thead><tr><th scope="col">游戏</th><th scope="col">结果</th></tr></thead><tbody><tr v-for="(result, index) in results" :key="`${result.game_id}:${result.installation_id || index}`"><td>{{ titleFor(result) }}<small v-if="result.path">{{ result.path }}</small></td><td>{{ result.success === true ? '已导入' : result.cancelled ? '已取消' : '未导入' }}<small v-if="result.detected_installed_version || (!result.state_status && result.version)">已确认版本：{{ result.detected_installed_version || result.version }}</small><small v-if="postImportMessage(result)">{{ postImportMessage(result) }}</small><small v-if="result.error">{{ result.error }}</small></td></tr></tbody></table>
       </div>
       <button v-if="state.uncertain || (importing.pending.value && !state.polling)" class="quiet-button" :disabled="importing.busy.value" @click="importing.retryStatus">重新读取任务状态</button>
     </section>

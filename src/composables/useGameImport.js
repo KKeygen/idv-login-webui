@@ -14,6 +14,26 @@ let taskGeneration = 0
 let pollingTaskId = ''
 let submissionBaselineIds = new Set()
 
+export function postImportDownload(result) {
+  return {
+    id: result?.download_task_id || result?.update_task_id || result?.repair_task_id || '',
+    operation: result?.download_operation || (result?.repair_task_id ? 'repair' : 'update'),
+    status: result?.download_status || result?.update_status || result?.repair_status || '',
+    error: result?.download_error || result?.update_error || result?.repair_error || '',
+  }
+}
+
+export function postImportMessage(result) {
+  const task = postImportDownload(result)
+  const action = task.operation === 'repair' ? '修复' : '更新'
+  if (task.status === 'up_to_date') return '已是最新版本，无需更新'
+  if (task.status === 'queued' || task.status === 'already_pending') {
+    return task.operation === 'repair' ? '未读到已安装版本，已提交后台修复' : '已提交后台版本更新'
+  }
+  if (task.status === 'failed' || task.status === 'skipped') return task.error || '未开始自动' + action
+  return ''
+}
+
 export function useGameImport() {
   const app = useAppStore()
   const supported = computed(() => supportsNextFeverFeatures(app.state.backendVersion)

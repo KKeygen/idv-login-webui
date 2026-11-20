@@ -9,7 +9,7 @@ import { Clock3, Download, FolderOpen, Pause, Play } from '@lucide/vue'
 import { openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { supportsNextFeverFeatures } from '../featureVersions'
-import { useGameImport } from '../composables/useGameImport'
+import { postImportDownload, postImportMessage, useGameImport } from '../composables/useGameImport'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -249,6 +249,25 @@ function beginDownload(task, kind) {
   })
 }
 
+function followPostImport(result) {
+  const task = postImportDownload(result)
+  if (!task.id || !cmpGameId(result.game_id, app.state.gameId)
+    || String(result.distribution_id) !== String(distributionId.value)
+    || activeTaskId.value === task.id || downloadStatus.value?.task_id === task.id) return
+  beginDownload({ task_id: task.id, operation: task.operation }, 'launcher-update')
+}
+
+watch(() => importing.state.task, task => {
+  if (task?.status === 'done' && task.success) followPostImport(task)
+})
+
+function reportLegacyPostImport(result) {
+  if (!result?.success) return
+  followPostImport(result)
+  const message = postImportMessage(result)
+  if (message) app.notify(message, result.download_status === 'failed' || result.download_status === 'skipped' ? 'warning' : 'success')
+}
+
 async function monitorDownload(taskId, initial = {}) {
   const generation = ++downloadGeneration
   activeTaskId.value = taskId
@@ -267,8 +286,10 @@ async function monitorDownload(taskId, initial = {}) {
         activeTaskId.value = ''
         controlPending.value = ''
         await app.refreshCurrent()
-        if (status.success) app.notify(status.kind === 'launcher-update' ? '游戏更新完成' : '游戏下载完成', 'success')
-        else app.notify(status.error || '游戏下载失败', 'error')
+        const operation = status.operation || downloadStatus.value?.operation
+        const action = operation === 'repair' ? '修复' : status.kind === 'launcher-update' ? '更新' : '下载'
+        if (status.success) app.notify(operation === 'update' && status.download_async === false ? '已是最新版本，无需更新' : `游戏${action}完成`, 'success')
+        else app.notify(status.error || `游戏${action}失败`, 'error')
         return
       }
     } catch (error) {
@@ -350,13 +371,14 @@ async function locate() {
     app.notify('已切换游戏，本次路径选择未应用', 'warning')
     return
   }
-  await app.mutate('locate-game', '/launcher-locate', {
+  const imported = await app.mutate('locate-game', '/launcher-locate', {
     method: 'POST',
     body: { game_id: scope.gameId, path: picked.path },
   }, { reload: false, optional: true })
+  reportLegacyPostImport(imported)
   await refreshIfCurrent(scope)
 }
-async function update() {
+async function update({ repair = canRepairMissing.value } = {}) {
   if ((!installed.value && !canRepairMissing.value) || !distribution.value?.can_update) return
   const scope = captureSelection()
   gameSettingsOpen.value = false
@@ -366,17 +388,18 @@ async function update() {
         game_id: scope.gameId,
         distribution_id: scope.distributionId,
         installation_id: scope.installationId,
+        ...(repair ? { repair: 1 } : {}),
       },
     })
-    if (pending?.success === false) throw new Error(pending.error || '游戏更新失败')
+    if (pending?.success === false) throw new Error(pending.error || (repair ? '游戏修复失败' : '游戏更新失败'))
     const stillCurrent = selectionMatches(scope)
     if (pending?.status === 'pending' && pending.task_id) {
-      if (stillCurrent) beginDownload(pending, 'launcher-update')
+      if (stillCurrent) beginDownload({ operation: repair ? 'repair' : 'update', ...pending }, 'launcher-update')
       refreshIfCurrent(scope).catch(() => {})
-      app.notify(`${scope.title}更新已在后台开始`, 'success')
+      app.notify(`${scope.title}${repair ? '修复' : '更新'}已在后台开始`, 'success')
     } else {
       await refreshIfCurrent(scope)
-      app.notify(`${scope.title}更新完成`, 'success')
+      app.notify(`${scope.title}${repair ? '修复' : '更新'}完成`, 'success')
     }
   }, { optional: true })
 }
@@ -405,7 +428,8 @@ async function importFever() {
     source: 'fever', gameId: scope.gameId,
     distributionId: feverSnapshot.distribution_id ?? scope.distributionId, path: feverSnapshot.path || '',
   })
-  await app.mutate('fever', '/launcher-import-fever', {
+  const imported = await app.mutate('fever', '/launcher-import-fever', {
+    method: 'POST',
     query: {
       game_id: scope.gameId,
       distribution_id: feverSnapshot.distribution_id ?? scope.distributionId,
@@ -416,6 +440,7 @@ async function importFever() {
     startMessage: '正在从发烧平台读取并校验游戏记录…',
     successMessage: '已从发烧平台导入游戏',
   })
+  reportLegacyPostImport(imported)
   await refreshIfCurrent(scope)
 }
 async function importFeverList() {
@@ -428,7 +453,8 @@ async function importFeverList() {
   }
   const item = (data.games || []).find(row => cmpGameId(row.game_id, scope.gameId) || cmpGameId(row.matched_game_id, scope.gameId)) || data.games?.[0]
   if (!item) return app.notify('没有找到可导入的发烧游戏平台记录', 'warning')
-  await app.mutate('fever-list', '/launcher-import-fever', {
+  const imported = await app.mutate('fever-list', '/launcher-import-fever', {
+    method: 'POST',
     query: {
       game_id: item.matched_game_id || item.game_id,
       distribution_id: item.distribution_id ?? -1,
@@ -439,6 +465,7 @@ async function importFeverList() {
     startMessage: '正在从发烧平台读取并校验游戏记录…',
     successMessage: '已从发烧平台导入游戏',
   })
+  reportLegacyPostImport(imported)
   await refreshIfCurrent(scope)
 }
 async function locateFromSettings() { gameSettingsOpen.value = false; await locate() }
