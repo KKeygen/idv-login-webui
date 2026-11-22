@@ -373,7 +373,10 @@ async function locate() {
   }
   const imported = await app.mutate('locate-game', '/launcher-locate', {
     method: 'POST',
-    body: { game_id: scope.gameId, path: picked.path },
+    body: {
+      game_id: scope.gameId, path: picked.path,
+      ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
+    },
   }, { reload: false, optional: true })
   reportLegacyPostImport(imported)
   await refreshIfCurrent(scope)
@@ -382,24 +385,26 @@ async function update({ repair = canRepairMissing.value } = {}) {
   if ((!installed.value && !canRepairMissing.value) || !distribution.value?.can_update) return
   const scope = captureSelection()
   gameSettingsOpen.value = false
+  const explicitMode = app.supportsFeverUpdateModes.value
   await app.guarded('update', async () => {
     const pending = await request('/launcher-update', {
       query: {
         game_id: scope.gameId,
         distribution_id: scope.distributionId,
         installation_id: scope.installationId,
-        ...(repair ? { repair: 1 } : {}),
+        ...(explicitMode ? { repair: repair ? 1 : 0 } : {}),
       },
     })
-    if (pending?.success === false) throw new Error(pending.error || (repair ? '游戏修复失败' : '游戏更新失败'))
+    const action = explicitMode && (pending?.operation === 'repair' || (!pending?.operation && repair)) ? '修复' : '更新'
+    if (pending?.success === false) throw new Error(pending.error || `游戏${action}失败`)
     const stillCurrent = selectionMatches(scope)
     if (pending?.status === 'pending' && pending.task_id) {
-      if (stillCurrent) beginDownload({ operation: repair ? 'repair' : 'update', ...pending }, 'launcher-update')
+      if (stillCurrent) beginDownload(pending, 'launcher-update')
       refreshIfCurrent(scope).catch(() => {})
-      app.notify(`${scope.title}${repair ? '修复' : '更新'}已在后台开始`, 'success')
+      app.notify(`${scope.title}${action}已在后台开始`, 'success')
     } else {
       await refreshIfCurrent(scope)
-      app.notify(`${scope.title}${repair ? '修复' : '更新'}完成`, 'success')
+      app.notify(`${scope.title}${action}完成`, 'success')
     }
   }, { optional: true })
 }
@@ -428,9 +433,11 @@ async function importFever() {
     source: 'fever', gameId: scope.gameId,
     distributionId: feverSnapshot.distribution_id ?? scope.distributionId, path: feverSnapshot.path || '',
   })
+  const updateAfterImport = app.supportsFeverUpdateModes.value
   const imported = await app.mutate('fever', '/launcher-import-fever', {
-    method: 'POST',
+    method: updateAfterImport ? 'POST' : 'GET',
     query: {
+      ...(updateAfterImport ? { update_after_import: 1 } : {}),
       game_id: scope.gameId,
       distribution_id: feverSnapshot.distribution_id ?? scope.distributionId,
       path: feverSnapshot.path || '',
@@ -453,9 +460,11 @@ async function importFeverList() {
   }
   const item = (data.games || []).find(row => cmpGameId(row.game_id, scope.gameId) || cmpGameId(row.matched_game_id, scope.gameId)) || data.games?.[0]
   if (!item) return app.notify('没有找到可导入的发烧游戏平台记录', 'warning')
+  const updateAfterImport = app.supportsFeverUpdateModes.value
   const imported = await app.mutate('fever-list', '/launcher-import-fever', {
-    method: 'POST',
+    method: updateAfterImport ? 'POST' : 'GET',
     query: {
+      ...(updateAfterImport ? { update_after_import: 1 } : {}),
       game_id: item.matched_game_id || item.game_id,
       distribution_id: item.distribution_id ?? -1,
       path: item.path || '',

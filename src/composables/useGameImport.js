@@ -226,7 +226,13 @@ export function useGameImport() {
     state.error = ''
     try {
       const path = draft.source === 'fever' ? '/launcher-import-fever' : '/launcher-locate'
-      const result = await request(path, { method: 'POST', body: { game_id: draft.game_id, path: draft.path, distribution_id: draft.distribution_id, async_import: true } })
+      const result = await request(path, {
+        method: 'POST',
+        body: {
+          game_id: draft.game_id, path: draft.path, distribution_id: draft.distribution_id, async_import: true,
+          ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
+        },
+      })
       if (!result?.task_id || !['pending', 'done'].includes(result.status)) {
         if (result?.success === false) throw new ApiError(result.error || '无法开始导入', 400, result)
         throw new Error('未确认导入任务')

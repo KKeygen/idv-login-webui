@@ -408,6 +408,7 @@ async function mutate(name, path, options = {}, {
 export function useAppStore() {
   return {
     state: readonly(state),
+    supportsFeverUpdateModes: computed(() => state.nativeCapabilities?.fever_update_modes_v1 === true),
     currentGame: computed(() => state.games.find(item => cmpGameId(item.game_id, state.gameId)) || null),
     notify, dismissNotice, reorderRailTabs, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
     setView: view => {
