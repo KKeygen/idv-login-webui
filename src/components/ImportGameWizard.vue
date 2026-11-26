@@ -1,7 +1,7 @@
 <script setup>
 import StepTransition from './StepTransition.vue'
 import WinSelect from './WinSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Check, CircleAlert, FolderOpen } from '@lucide/vue'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { postImportMessage, useGameImport } from '../composables/useGameImport'
@@ -15,6 +15,10 @@ const state = importing.state
 const steps = ['选择来源', '确认导入', '进度与结果']
 const phaseLabels = { preparing: '正在准备导入', checking: '正在读取安装状态', saving: '正在保存安装记录', finished: '导入已完成', failed: '导入未完成', cancelled: '导入已取消' }
 const selectedGame = computed(() => app.state.games.find(game => cmpGameId(game.game_id, state.draft.game_id)))
+const blockedReason = computed(() => importing.operationMessage(state.draft.game_id))
+watch(() => state.open && state.step < 2 && state.draft.game_id, gameId => {
+  if (gameId) app.requestLauncher(gameId, { force: true }).catch(() => {})
+})
 const selectedTitle = computed(() => state.draft.display_name || gameTitle(selectedGame.value || {}, state.draft.game_id))
 const taskTitle = computed(() => {
   if (state.uncertain) return '正在确认后台是否已接收请求'
@@ -84,6 +88,7 @@ function titleFor(result) {
       <button v-if="state.uncertain || (importing.pending.value && !state.polling)" class="quiet-button" :disabled="importing.busy.value" @click="importing.retryStatus">重新读取任务状态</button>
     </section>
     </StepTransition>
+    <p v-if="state.step < 2 && blockedReason && !state.submitting" class="switching-option-note" role="status">{{ blockedReason }}，结束后可导入该游戏。</p>
     <p v-if="state.error" class="switching-validation" role="alert">{{ state.error }}</p>
     <button v-if="state.error && state.step < 2" class="text-button" :disabled="importing.busy.value" @click="importing.readState">重新读取导入来源</button>
     <template #footer>

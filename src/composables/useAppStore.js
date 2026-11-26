@@ -25,6 +25,7 @@ const state = reactive({
   rememberedGame: persistedRail.current_game || null,
 })
 
+const writingGames = reactive(new Map())
 const launcherRequests = new Map()
 const accountRequests = new Map()
 const accountDataByGame = new Map()
@@ -157,6 +158,15 @@ function cachedLauncher(gameId) {
   return state.railLaunchers.find(item => cmpGameId(item.game_id, gameId)) || null
 }
 
+function pendingDownload(gameId) {
+  return cachedLauncher(gameId)?.distributions.find(item => item.active_task?.status === 'pending')?.active_task
+}
+
+function rememberDownload(gameId, distributionId, task) {
+  const distribution = cachedLauncher(gameId)?.distributions.find(item => String(item.distribution_id) === String(distributionId))
+  if (distribution) distribution.active_task = task
+}
+
 function requestLauncher(gameId, { force = false } = {}) {
   const key = gameCacheKey(gameId)
   const cached = cachedLauncher(gameId)
@@ -167,6 +177,7 @@ function requestLauncher(gameId, { force = false } = {}) {
     .then(data => {
       if (data?.success !== false && data?.installation_model_version === 1 && data.game && Array.isArray(data.distributions)) {
         rememberRailLauncher(data)
+        if (cmpGameId(state.gameId, gameId)) state.launcher = data
         cacheLauncherVisual(data)
         preloadLauncherImages(data)
       }
@@ -209,8 +220,11 @@ function hydrateVisualCache() {
   }
 }
 
-async function guarded(name, fn, { optional = false } = {}) {
-  state.busy = name
+async function guarded(name, fn, { optional = false, gameId = '' } = {}) {
+  const key = shortGameId(gameId)
+  if (key && writingGames.has(key)) return null
+  if (key) writingGames.set(key, name)
+  else state.busy = name
   try { return await fn() }
   catch (error) {
     if (optional && error instanceof ApiError && error.status === 404) {
@@ -219,7 +233,10 @@ async function guarded(name, fn, { optional = false } = {}) {
     }
     notify(error.message || '操作失败', 'error')
     throw error
-  } finally { if (state.busy === name) state.busy = '' }
+  } finally {
+    if (key) writingGames.delete(key)
+    else if (state.busy === name) state.busy = ''
+  }
 }
 
 async function loadGames() {
@@ -389,6 +406,7 @@ async function selectRailTab(tab) {
 
 async function mutate(name, path, options = {}, {
   taskPath,
+  gameId,
   reload = true,
   optional = false,
   startMessage = '',
@@ -402,7 +420,7 @@ async function mutate(name, path, options = {}, {
     if (reload) await refreshCurrent()
     if (successMessage) notify(successMessage, 'success')
     return result
-  }, { optional })
+  }, { optional, gameId })
 }
 
 export function useAppStore() {
@@ -410,6 +428,8 @@ export function useAppStore() {
     state: readonly(state),
     supportsFeverUpdateModes: computed(() => state.nativeCapabilities?.fever_update_modes_v1 === true),
     currentGame: computed(() => state.games.find(item => cmpGameId(item.game_id, state.gameId)) || null),
+    gameWrite: gameId => writingGames.get(shortGameId(gameId)),
+    pendingDownload, rememberDownload, requestLauncher,
     notify, dismissNotice, reorderRailTabs, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
     setView: view => {
       if (!APP_VIEWS.has(view)) return Promise.resolve(null)
