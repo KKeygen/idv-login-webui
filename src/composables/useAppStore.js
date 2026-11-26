@@ -167,11 +167,13 @@ function rememberDownload(gameId, distributionId, task) {
   if (distribution) distribution.active_task = task
 }
 
-function requestLauncher(gameId, { force = false } = {}) {
+async function requestLauncher(gameId, { force = false } = {}) {
   const key = gameCacheKey(gameId)
   const cached = cachedLauncher(gameId)
-  if (!key) return Promise.resolve(null)
+  if (!key) return null
   if (!force && cached) return Promise.resolve(cached)
+  // A refresh after a write must not reuse a snapshot requested before the write.
+  if (force && launcherRequests.has(key)) await launcherRequests.get(key).catch(() => {})
   if (launcherRequests.has(key)) return launcherRequests.get(key)
   const pending = request('/launcher-status', { query: { game_id: gameId } })
     .then(data => {
@@ -192,11 +194,7 @@ async function loadInstalledRail({ forceGameIds = [] } = {}) {
   const forceGame = game => forceGameIds.some(id => cmpGameId(id, game.game_id))
   const missing = state.games.filter(game => isGameInstalled(game) && (!cachedLauncher(game.game_id) || forceGame(game)))
   if (!missing.length) return []
-  return Promise.allSettled(missing.map(async game => {
-    const force = forceGame(game)
-    if (force) await launcherRequests.get(gameCacheKey(game.game_id))?.catch(() => {})
-    return requestLauncher(game.game_id, { force })
-  }))
+  return Promise.allSettled(missing.map(game => requestLauncher(game.game_id, { force: forceGame(game) })))
 }
 
 function hydrateVisualCache() {
