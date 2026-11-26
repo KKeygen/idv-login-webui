@@ -1,12 +1,13 @@
 // The next Fever UI changes ship with the tool's 6.3.3 beta release.
 export const FEVER_NEXT_VERSION = '6.3.3-beta'
+const HOTFIX_SETTINGS_VERSION = '6.3.4-stable'
+const RELEASE_STAGES = { beta: 0, rc: 1, stable: 2 }
 
 function parseToolVersion(version) {
   if (typeof version !== 'string') return null
   const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-(beta|rc|stable)(?:[.-](\d+))?)?(?:\+[\w.-]+)?$/i)
   if (!match) return null
-  const stages = { beta: 0, rc: 1, stable: 2 }
-  const parts = [...match.slice(1, 4).map(Number), stages[(match[4] || 'stable').toLowerCase()], Number(match[5] || 0)]
+  const parts = [...match.slice(1, 4).map(Number), RELEASE_STAGES[(match[4] || 'stable').toLowerCase()], Number(match[5] || 0)]
   return parts.every(Number.isSafeInteger) ? parts : null
 }
 
@@ -22,4 +23,8 @@ export function versionAtLeast(version, minimumVersion) {
 
 export function supportsNextFeverFeatures(version) {
   return versionAtLeast(version, FEVER_NEXT_VERSION)
+}
+
+export function supportsHotfixSettings(version) {
+  return parseToolVersion(version)?.[3] === RELEASE_STAGES.stable && versionAtLeast(version, HOTFIX_SETTINGS_VERSION)
 }

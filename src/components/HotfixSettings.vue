@@ -16,10 +16,14 @@ const notice = ref(null)
 import { computed, onMounted, ref } from 'vue'
 import { PackageCheck, RotateCw } from '@lucide/vue'
 import { ApiError, pollTask, request } from '../api'
+import { useAppStore } from '../composables/useAppStore'
+import { supportsHotfixSettings } from '../featureVersions'
 import MotionProgressRing from './MotionProgressRing.vue'
 import WinExpander from './WinExpander.vue'
 import WinInfoBar from './WinInfoBar.vue'
 
+const app = useAppStore()
+const supported = computed(() => supportsHotfixSettings(app.state.backendVersion))
 const expandedId = ref('')
 const statusLabels = {
   pending: '待应用',
@@ -38,11 +42,12 @@ const groups = computed(() => [
 const availableCount = computed(() => snapshot.value?.applyable_count || 0)
 const restartRequired = computed(() => snapshot.value?.restart_required === true)
 const busy = computed(() => loading.value || applying.value || restarting.value)
-const canApply = computed(() => Boolean(snapshot.value?.available && availableCount.value && !busy.value
+const canApply = computed(() => Boolean(supported.value && snapshot.value?.available && availableCount.value && !busy.value
   && !taskId.value && !error.value))
 const resultById = computed(() => new Map(taskResults.value.map(result => [result.id, result])))
 
 async function loadSnapshot() {
+  if (!supported.value) return
   const data = await request('/hotfix-status')
   if (data?.success !== true || typeof data.version !== 'string' || typeof data.available !== 'boolean'
     || !Array.isArray(data.items) || !Number.isInteger(data.applyable_count)) {
@@ -75,7 +80,7 @@ async function followApply() {
 }
 
 async function readStatus() {
-  if (busy.value) return
+  if (!supported.value || busy.value) return
   error.value = ''
   loading.value = true
   try {
@@ -116,7 +121,7 @@ async function applyPending() {
 }
 
 async function restartTool() {
-  if (busy.value || taskId.value || error.value || !restartRequired.value) return
+  if (!supported.value || busy.value || taskId.value || error.value || !restartRequired.value) return
   restarting.value = true
   notice.value = null
   try {
