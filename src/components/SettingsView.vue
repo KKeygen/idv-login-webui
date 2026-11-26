@@ -4,7 +4,7 @@ import WinNavigation from './WinNavigation.vue'
 import WinSwitch from './WinSwitch.vue'
 import WinSelect from './WinSelect.vue'
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
-import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
+import { FileText, Network, PackageCheck, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, openExternal, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
 import { useAccountSwitching } from '../composables/useAccountSwitching'
@@ -12,6 +12,7 @@ import { showConfirm } from '../dialogService'
 import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
 import { supportsNextFeverFeatures } from '../featureVersions'
 import HelpTip from './HelpTip.vue'
+import HotfixSettings from './HotfixSettings.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
@@ -23,6 +24,7 @@ const activeSection = ref('general')
 const sections = [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
   { id: 'network', label: '网络', description: '代理与游戏网络接管方式', icon: Network },
+  { id: 'hotfixes', label: '热更新', description: '查看当前工具版本的修补内容和应用状态', icon: PackageCheck },
   { id: 'diagnostics', label: '诊断', description: '实时输出、日志导出与状态重置', icon: Wrench },
 ]
 const currentSection = computed(() => sections.find(item => item.id === activeSection.value))
@@ -315,7 +317,8 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
         <FrameTransition scope="section">
           <div :key="activeSection" class="settings-section-host">
             <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
-            <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
+            <HotfixSettings v-if="activeSection === 'hotfixes'" />
+            <div v-else-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
             <div v-else-if="loadError && activeSection !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
             <article v-else-if="activeSection === 'general'" class="settings-card glass">
           <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div><button class="text-button" :disabled="Boolean(saving)" @click="load">重新读取</button></header>
