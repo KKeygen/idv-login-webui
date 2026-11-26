@@ -4,28 +4,36 @@ import WinNavigation from './WinNavigation.vue'
 import WinSwitch from './WinSwitch.vue'
 import WinSelect from './WinSelect.vue'
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
-import { FileText, Network, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
+import { FileText, Network, PackageCheck, RotateCcw, Settings2, Terminal, Wrench } from '@lucide/vue'
 import { ApiError, openExternal, request } from '../api'
 import { useAppStore } from '../composables/useAppStore'
 import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
 import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
-import { supportsNextFeverFeatures } from '../featureVersions'
+import { supportsHotfixSettings, supportsNextFeverFeatures } from '../featureVersions'
 import HelpTip from './HelpTip.vue'
+import HotfixSettings from './HotfixSettings.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
 const supportsNewFeatures = computed(() => supportsNextFeverFeatures(app.state.backendVersion))
+const hotfixSettingsAvailable = computed(() => supportsHotfixSettings(app.state.backendVersion))
 const switching = useAccountSwitching()
 const switchingBusy = ref(false)
 const switchingFeedback = ref('')
 const activeSection = ref('general')
-const sections = [
+const sections = computed(() => [
   { id: 'general', label: '常规', description: '账号记录和内容显示', icon: Settings2 },
   { id: 'network', label: '网络', description: '代理与游戏网络接管方式', icon: Network },
+  ...(hotfixSettingsAvailable.value ? [
+    { id: 'hotfixes', label: '热更新', description: '查看当前工具版本的修补内容和应用状态', icon: PackageCheck },
+  ] : []),
   { id: 'diagnostics', label: '诊断', description: '实时输出、日志导出与状态重置', icon: Wrench },
-]
-const currentSection = computed(() => sections.find(item => item.id === activeSection.value))
+])
+const currentSection = computed(() => sections.value.find(item => item.id === activeSection.value) || sections.value[0])
+function selectSection(id) {
+  if (sections.value.some(section => section.id === id)) activeSection.value = id
+}
 const form = reactive({
   scanRecord: true,
   scanSupported: true,
@@ -308,23 +316,24 @@ onBeforeUnmount(() => { viewActive = false; stopTerminal() })
     <div class="settings-layout">
       <aside class="settings-subnav glass">
         <header><p class="eyebrow">偏好设置</p><h1>应用设置</h1></header>
-        <WinNavigation v-model="activeSection" :items="sections" aria-label="应用设置分类" />
+        <WinNavigation :model-value="currentSection.id" :items="sections" aria-label="应用设置分类" @update:model-value="selectSection" />
       </aside>
 
       <section class="settings-content">
         <FrameTransition scope="section">
-          <div :key="activeSection" class="settings-section-host">
+          <div :key="currentSection.id" class="settings-section-host">
             <header class="settings-section-title"><h1>{{ currentSection.label }}</h1><p>{{ currentSection.description }}</p></header>
-            <div v-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
-            <div v-else-if="loadError && activeSection !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
-            <article v-else-if="activeSection === 'general'" class="settings-card glass">
+            <HotfixSettings v-if="currentSection.id === 'hotfixes'" />
+            <div v-else-if="loading" class="content-loading settings-loading"><MotionProgressRing :size="32" aria-label="正在读取应用设置" /><span>正在读取设置…</span></div>
+            <div v-else-if="loadError && currentSection.id !== 'diagnostics'" class="switching-load-error" role="alert"><p>{{ loadError }}</p><button class="quiet-button" @click="load">重新读取</button></div>
+            <article v-else-if="currentSection.id === 'general'" class="settings-card glass">
           <header><Settings2 :size="20" /><div><h2>工具行为</h2><p>这些设置对所有游戏生效。</p></div><button class="text-button" :disabled="Boolean(saving)" @click="load">重新读取</button></header>
           <label v-if="form.scanSupported" class="setting-row" for="settingsview-field-1"><span><strong class="setting-title-with-help">保存扫码账号记录 <HelpTip text="扫码登录成功后，将该账号的渠道、账号标识和必要登录记录保存到工具的本地账号列表，便于下次直接切换。关闭后，新扫码的账号不会加入工具记录。" /></strong><small>保存到工具的本地账号列表</small></span><WinSwitch id="settingsview-field-1" :model-value="form.scanRecord" :disabled="Boolean(saving)" @change="(next, event) => toggleScan(event)" /></label>
           <label v-if="form.nativeSupported" class="setting-row" for="settingsview-field-2"><span><strong class="setting-title-with-help">同步保存到游戏原生记录 <HelpTip text="在工具保存扫码账号的同时，将兼容的账号记录写入游戏或官方登录组件维护的本地列表，使它也能在原生账号选择界面中出现。此选项依赖‘保存扫码账号记录’。" /></strong><small>同时写入兼容的原生账号列表</small></span><WinSwitch id="settingsview-field-2" :model-value="form.nativeSave" :disabled="!form.scanRecord || Boolean(saving)" @change="(next, event) => toggleNative(event)" /></label>
           <div v-if="switching.supported.value" class="setting-row switching-settings-entry"><span><strong>同步游戏内的账号</strong><small>{{ switching.state.loaded ? '全局开关影响所有游戏；各游戏的账号选择在账号管理中修改。' : (switching.state.error || '正在读取设置…') }}</small><small v-if="switchingFeedback" role="status">{{ switchingFeedback }}</small></span><div class="switching-global-actions"><WinSwitch v-if="switching.state.loaded && (switching.state.config.onboarding_completed || switching.state.config.enabled)" aria-label="全局启用游戏内账号同步" :model-value="switching.state.config.enabled" :disabled="switchingBusy || switching.state.saving || switching.state.loading" @change="toggleAccountSync" /><button class="quiet-button" :disabled="switchingBusy || switching.state.saving || switching.state.loading" @click="switching.openWizard">打开配置向导</button></div></div>
           <label class="setting-row"><span><strong>显示启动器新闻</strong><small>关闭后启动器主界面不显示新闻面板</small></span><WinSwitch v-model="form.newsVisible" @change="setNews" /></label>
         </article>
-        <article v-else-if="activeSection === 'network'" class="settings-card glass">
+        <article v-else-if="currentSection.id === 'network'" class="settings-card glass">
           <header><Network :size="20" /><div><h2>代理模式</h2><p>修改后通常需要重启工具。</p></div></header>
           <label class="field network-mode-field" for="settingsview-field-3"><span>网络接管方式</span><WinSelect id="settingsview-field-3" v-model="form.proxyMode" :disabled="Boolean(saving)" :options="[{value: 'global',label: '全局代理'},{value: 'process',label: '仅游戏进程'},{value: 'compat',label: '兼容模式'}]" aria-label="网络接管方式" aria-describedby="network-mode-description" /></label>
           <p id="network-mode-description" class="network-mode-description">{{ { global: '使用系统代理接管相关请求。', process: '将网络接管范围限制在游戏及登录组件。', compat: '使用本地 DNS 和直连规则，适用于主要通过浏览器访问启动器的场景。' }[form.proxyMode] }}</p>
