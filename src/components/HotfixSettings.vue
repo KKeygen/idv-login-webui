@@ -58,7 +58,16 @@ async function loadSnapshot() {
 }
 
 async function followApply() {
-  const result = await pollTask('/native/task-status', taskId.value)
+  let result
+  try {
+    result = await pollTask('/native/task-status', taskId.value)
+  } catch (failure) {
+    if (!(failure instanceof ApiError) || failure.status !== 404) throw failure
+    taskId.value = ''
+    taskResults.value = []
+    notice.value = { tone: 'warning', text: '上次任务的记录已不可用，请以当前热更新状态为准。' }
+    return
+  }
   if (result?.status !== 'done' || !Array.isArray(result.results)) {
     throw new Error('未确认热更新任务结果')
   }
