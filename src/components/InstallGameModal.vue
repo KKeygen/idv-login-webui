@@ -12,6 +12,7 @@ const props = defineProps({
   pathStatus: { type: Object, default: null },
   requirements: { type: Object, default: () => ({}) },
   busy: Boolean,
+  blockedReason: String,
   pathBusy: Boolean,
 })
 const emit = defineEmits(['close', 'choose', 'install'])
@@ -25,6 +26,7 @@ const canInstall = computed(() => Boolean(
   hasCapacity.value
   && !insufficient.value
   && !props.busy
+  && !props.blockedReason
   && !props.pathBusy
 ))
 
@@ -57,7 +59,8 @@ function formatSize(bytes) {
         <span>可用空间 <strong v-if="hasCapacity">{{ formatSize(availableBytes) }}</strong><span v-else class="inline-loading"><MotionProgressRing :size="14" aria-label="正在读取磁盘空间" />正在读取</span></span>
       </div>
 
-      <p v-if="insufficient" class="install-warning"><CircleAlert :size="15" />所选磁盘空间不足，请更换安装位置。</p>
+      <p v-if="blockedReason" class="install-warning" role="status">{{ blockedReason }}</p>
+      <p v-else-if="insufficient" class="install-warning"><CircleAlert :size="15" />所选磁盘空间不足，请更换安装位置。</p>
       <p v-else-if="downloadBytes" class="install-package-note"><Download :size="14" />需要下载约 {{ formatSize(downloadBytes) }}，安装会在后台继续进行。</p>
 
       <footer class="install-dialog-actions">

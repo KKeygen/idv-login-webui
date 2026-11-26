@@ -10,17 +10,14 @@ import { cmpGameId, useAppStore } from '../composables/useAppStore'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
-const props = defineProps({ open: Boolean, title: { type: String, default: '游戏' } })
+const props = defineProps({ open: Boolean, blockedReason: String, title: { type: String, default: '游戏' } })
 const emit = defineEmits(['close', 'update', 'locate', 'remove', 'import-fever', 'import-fever-list'])
 const app = useAppStore()
 const activeSection = ref('basic')
 const loading = ref(false)
-const pendingSetting = ref('')
-async function saveSetting(name, action) {
-  if (pendingSetting.value || loading.value) return
-  pendingSetting.value = name
-  try { await action() } catch { app.notify('当前游戏的设置未确认保存，请重新读取后重试', 'error') }
-  finally { pendingSetting.value = '' }
+function saveSetting(action) {
+  if (props.blockedReason || loading.value) return
+  app.guarded('game-settings', action, { gameId: app.state.gameId }).catch(() => {})
 }
 const supported = reactive({ autoStart: true, autoClose: true, loginDelay: true, feverBridge: true })
 const form = reactive({ autoStart: false, autoClose: false, loginDelay: 0, feverForced: false, feverForceSupported: false })
@@ -208,32 +205,36 @@ async function createShortcut() {
             <img v-if="gameIcon" :src="gameIcon" alt="" />
             <span v-else>{{ title.slice(0, 1) }}</span>
           </span>
-          <div><h2>{{ title }}</h2><p>{{ installed ? (needsUpdate ? '已有可用更新' : '游戏已安装') : canRepairMissing ? '游戏文件缺失，可修复' : '尚未安装' }}</p></div>
-          <button v-if="installed" class="quiet-button danger" @click="emit('remove')"><Trash2 :size="15" />移除记录</button>
+          <div>
+            <h2>{{ title }}</h2>
+            <p v-if="blockedReason" role="status">{{ blockedReason }}</p>
+            <p v-else>{{ installed ? (needsUpdate ? '已有可用更新' : '游戏已安装') : canRepairMissing ? '游戏文件缺失，可修复' : '尚未安装' }}</p>
+          </div>
+          <button v-if="installed" class="quiet-button danger" :disabled="Boolean(blockedReason)" @click="emit('remove')"><Trash2 :size="15" />移除记录</button>
         </div>
 
         <div class="game-settings-path-row">
           <FolderOpen :size="16" />
           <span :title="installation?.path">{{ installation?.path || '尚未选择游戏路径' }}</span>
-          <button class="quiet-button" @click="emit('locate')">{{ installed ? '重新定位' : '选择路径' }}</button>
+          <button class="quiet-button" :disabled="Boolean(blockedReason)" @click="emit('locate')">{{ installed ? '重新定位' : '选择路径' }}</button>
         </div>
 
         <div class="game-settings-actions">
-          <button v-if="(installed || canRepairMissing) && distribution?.can_update" class="quiet-button accent" @click="emit('update', { repair: canRepairMissing || !needsUpdate })"><Download :size="15" />{{ canRepairMissing || !needsUpdate ? '修复游戏' : '更新游戏' }}</button>
+          <button v-if="(installed || canRepairMissing) && distribution?.can_update" class="quiet-button accent" :disabled="Boolean(blockedReason)" @click="emit('update', { repair: canRepairMissing || !needsUpdate })"><Download :size="15" />{{ canRepairMissing || !needsUpdate ? '修复游戏' : '更新游戏' }}</button>
           <button v-if="installed" class="quiet-button" @click="createShortcut"><Link :size="15" />创建桌面快捷方式</button>
-          <button v-if="canImportFever" class="quiet-button" @click="emit('import-fever')"><Download :size="15" />从发烧平台导入</button>
-          <button v-if="app.state.launcher?.platform_type === 'fever'" class="quiet-button" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>
+          <button v-if="canImportFever" class="quiet-button" :disabled="Boolean(blockedReason)" @click="emit('import-fever')"><Download :size="15" />从发烧平台导入</button>
+          <button v-if="app.state.launcher?.platform_type === 'fever'" class="quiet-button" :disabled="Boolean(blockedReason)" @click="emit('import-fever-list')"><FileText :size="15" />从发烧平台列表导入</button>
         </div>
         </section>
 
         <section v-if="installed" class="game-settings-content" :aria-hidden="activeSection !== 'launch' ? 'true' : undefined" :inert="activeSection !== 'launch'">
-          <header><h2>启动设置</h2><p>这些选项只应用于当前游戏。</p></header>
+          <header><h2>启动设置</h2><p>{{ blockedReason || '这些选项只应用于当前游戏。' }}</p></header>
           <div v-if="loading" class="content-loading"><MotionProgressRing :size="28" aria-label="正在读取游戏设置" /><span>正在读取设置…</span></div>
         <template v-else>
-          <label v-if="supported.autoStart" class="setting-row"><span><strong>工具启动后自动运行此游戏</strong><small>{{ installation?.path || '尚未选择游戏路径' }}</small></span><WinSwitch :model-value="form.autoStart" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('autoStart', setAutoStart)" /></label>
-          <label v-if="supported.autoClose" class="setting-row"><span><strong>登录成功后自动关闭工具</strong><small>只应用于当前游戏</small></span><WinSwitch :model-value="form.autoClose" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('autoClose', toggleAutoClose)" /></label>
-          <label v-if="supported.loginDelay" class="field"><span>自动登录延迟（秒）</span><div class="inline"><input v-model.number="form.loginDelay" type="number" min="0" /><button class="ghost" @click="saveDelay"><Save :size="16" />保存</button></div></label>
-          <label v-if="supported.feverBridge && form.feverForceSupported && canUseFeverBridge" class="setting-row"><span><strong>强制此游戏使用平台托管登录</strong><small>覆写当前游戏的默认登录方式判断</small></span><WinSwitch :model-value="form.feverForced" :disabled="Boolean(pendingSetting) || loading" @change="saveSetting('feverForced', toggleFeverForced)" /></label>
+          <label v-if="supported.autoStart" class="setting-row"><span><strong>工具启动后自动运行此游戏</strong><small>{{ installation?.path || '尚未选择游戏路径' }}</small></span><WinSwitch :model-value="form.autoStart" :disabled="Boolean(blockedReason) || loading" @change="saveSetting(setAutoStart)" /></label>
+          <label v-if="supported.autoClose" class="setting-row"><span><strong>登录成功后自动关闭工具</strong><small>只应用于当前游戏</small></span><WinSwitch :model-value="form.autoClose" :disabled="Boolean(blockedReason) || loading" @change="saveSetting(toggleAutoClose)" /></label>
+          <label v-if="supported.loginDelay" class="field"><span>自动登录延迟（秒）</span><div class="inline"><input v-model.number="form.loginDelay" type="number" min="0" :disabled="Boolean(blockedReason)" /><button class="ghost" :disabled="Boolean(blockedReason)" @click="saveSetting(saveDelay)"><Save :size="16" />保存</button></div></label>
+          <label v-if="supported.feverBridge && form.feverForceSupported && canUseFeverBridge" class="setting-row"><span><strong>强制此游戏使用平台托管登录</strong><small>覆写当前游戏的默认登录方式判断</small></span><WinSwitch :model-value="form.feverForced" :disabled="Boolean(blockedReason) || loading" @change="saveSetting(toggleFeverForced)" /></label>
           </template>
         </section>
       </VerticalFlipView>

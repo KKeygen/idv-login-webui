@@ -5,7 +5,7 @@ import { cmpGameId, useAppStore } from './useAppStore'
 
 const state = reactive({
   open: false, loading: false, picking: false, submitting: false, controlling: false,
-  polling: false, unavailable: false, uncertain: false, step: 0, mode: 'manual', error: '',
+  polling: false, restored: false, unavailable: false, uncertain: false, step: 0, mode: 'manual', error: '',
   candidates: [], tasks: [], recentTasks: [], task: null, draft: { source: 'manual', game_id: '', path: '', distribution_id: -1 },
 })
 let loadGeneration = 0
@@ -40,9 +40,20 @@ export function useGameImport() {
     && app.state.nativeCapabilities?.import_tasks_v1 === true && !state.unavailable)
   const busy = computed(() => state.loading || state.picking || state.submitting || state.controlling)
   const pending = computed(() => state.task?.status === 'pending')
+  function operationMessage(gameId) {
+    if (!gameId) return ''
+    if (supported.value && !state.restored) return state.error || '正在确认后台导入状态'
+    if ((state.submitting || state.uncertain) && cmpGameId(state.draft.game_id, gameId)) return '正在确认游戏导入'
+    const affectsGame = task => task?.status === 'pending' && (task.source === 'startup' || cmpGameId(task.game_id, gameId))
+    if (affectsGame(state.task) || state.tasks.some(task => task.task_id !== state.task?.task_id && affectsGame(task))) return '正在导入游戏'
+    if (app.gameWrite(gameId)) return '正在保存游戏更改'
+    if (app.pendingDownload(gameId)) return '正在安装、更新或修复游戏'
+    return ''
+  }
+
   const canConfirm = computed(() => Boolean(state.draft.game_id && state.draft.path
     && (state.draft.source === 'fever' || /\.exe$/i.test(state.draft.path))
-    && !busy.value && !state.uncertain))
+    && !busy.value && !operationMessage(state.draft.game_id)))
 
   function unavailable(error) {
     if (!(error instanceof ApiError) || error.status !== 404) return false
@@ -64,6 +75,7 @@ export function useGameImport() {
       state.candidates = result.candidates.filter(item => item?.source === 'fever' && item.game_id && item.path)
       const validTask = item => item?.kind === 'game-import' && item.task_id && ['pending', 'done'].includes(item.status)
       state.tasks = result.active_tasks.filter(validTask)
+      state.restored = true
       state.recentTasks = (Array.isArray(result.recent_tasks) ? result.recent_tasks : []).filter(validTask)
       return result
     } catch (error) {
@@ -224,6 +236,19 @@ export function useGameImport() {
     submissionBaselineIds = new Set([...state.tasks, ...state.recentTasks].map(item => item.task_id))
     state.submitting = true
     state.error = ''
+    // The catalog can open on a game whose launcher has not been visited yet.
+    try {
+      const launcher = await app.requestLauncher(draft.game_id, { force: true })
+      if (!Array.isArray(launcher?.distributions)) throw new Error('无法读取游戏安装状态，请重试')
+      if (app.pendingDownload(draft.game_id)) {
+        state.submitting = false
+        return
+      }
+    } catch (error) {
+      state.error = error.message || '无法读取游戏安装状态，请重试'
+      state.submitting = false
+      return
+    }
     try {
       const path = draft.source === 'fever' ? '/launcher-import-fever' : '/launcher-locate'
       const result = await request(path, {
@@ -299,5 +324,5 @@ export function useGameImport() {
     state.polling = false; state.loading = false; state.picking = false; pollingTaskId = ''
   }
 
-  return { state: readonly(state), supported, busy, pending, canConfirm, restore, openWizard, readState, setMode, setGame, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
+  return { state: readonly(state), supported, busy, pending, canConfirm, operationMessage, restore, openWizard, readState, setMode, setGame, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
 }

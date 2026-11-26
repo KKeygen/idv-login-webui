@@ -164,7 +164,16 @@ onMounted(async () => {
   // current-game icon must remain a presentation-only operation.
   app.loadInstalledRail().catch(() => {})
   statusTimer = setInterval(() => {
-    if (document.visibilityState === 'visible') app.loadGames().catch(() => {})
+    if (document.visibilityState !== 'visible') return
+    app.loadGames().catch(() => {})
+    if (importing.supported.value && !importing.state.loading) {
+      if (!importing.state.restored) importing.restore().catch(() => {})
+      else if (importing.state.tasks.some(task => task.status === 'pending' && task.task_id !== importing.state.task?.task_id)) importing.readState()
+    }
+    const visibleGames = new Set([app.state.gameId, importing.state.open && importing.state.draft.game_id])
+    for (const gameId of visibleGames) {
+      if (gameId && app.pendingDownload(gameId)) app.requestLauncher(gameId, { force: true }).catch(() => {})
+    }
   }, 10_000)
 })
 onBeforeUnmount(() => { clearInterval(statusTimer); clearTimeout(railCloseTimer); importing.dispose(); motionCleanup() })

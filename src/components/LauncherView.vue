@@ -18,6 +18,8 @@ import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
 const importing = useGameImport()
+const busyAction = computed(() => app.gameWrite(app.state.gameId) || app.state.busy)
+const operationMessage = computed(() => importing.operationMessage(app.state.gameId))
 const distributionId = computed({ get: () => app.state.distributionId, set: value => app.setDistribution(value) })
 const showNews = ref(localStorage.getItem('idv.news.visible') !== 'false')
 const gameSettingsOpen = ref(false)
@@ -154,7 +156,8 @@ function handleEasterFrameError() {
   app.notify('隐藏展示暂时无法打开', 'error')
 }
 async function refreshIfCurrent(scope) {
-  if (selectionMatches(scope)) await app.refreshCurrent()
+  if (selectionMatches(scope) && app.state.view === 'launcher') await app.loadLauncher({ force: true })
+  else await app.requestLauncher(scope.gameId, { force: true })
 }
 
 watch(distributions, list => {
@@ -238,23 +241,24 @@ async function chooseDirectory() {
   }
 }
 
-function beginDownload(task, kind) {
+function beginDownload(task, kind, gameId, targetDistribution) {
   if (!task?.task_id) return
-  monitorDownload(task.task_id, {
-    ...task,
-    kind,
+  const pending = {
+    ...task, kind, status: 'pending',
     created_at: task.created_at || Math.floor(Date.now() / 1000),
     phase: task.phase || '正在准备下载…',
     progress_percent: task.progress_percent || 0,
-  })
+  }
+  app.rememberDownload(gameId, targetDistribution, pending)
+  if (cmpGameId(gameId, app.state.gameId) && String(targetDistribution) === String(distributionId.value)
+    && activeTaskId.value !== task.task_id) monitorDownload(task.task_id, pending)
 }
 
 function followPostImport(result) {
   const task = postImportDownload(result)
-  if (!task.id || !cmpGameId(result.game_id, app.state.gameId)
-    || String(result.distribution_id) !== String(distributionId.value)
-    || activeTaskId.value === task.id || downloadStatus.value?.task_id === task.id) return
-  beginDownload({ task_id: task.id, operation: task.operation }, 'launcher-update')
+  if (task.id && task.id !== downloadStatus.value?.task_id) {
+    beginDownload({ task_id: task.id, operation: task.operation }, 'launcher-update', result.game_id, result.distribution_id)
+  }
 }
 
 watch(() => importing.state.task, task => {
@@ -269,6 +273,7 @@ function reportLegacyPostImport(result) {
 }
 
 async function monitorDownload(taskId, initial = {}) {
+  const scope = captureSelection()
   const generation = ++downloadGeneration
   activeTaskId.value = taskId
   downloadStatus.value = { status: 'pending', ...initial, task_id: taskId }
@@ -285,7 +290,8 @@ async function monitorDownload(taskId, initial = {}) {
       if (status.status !== 'pending') {
         activeTaskId.value = ''
         controlPending.value = ''
-        await app.refreshCurrent()
+        app.rememberDownload(scope.gameId, scope.distributionId, null)
+        await refreshIfCurrent(scope)
         const operation = status.operation || downloadStatus.value?.operation
         const action = operation === 'repair' ? '修复' : status.kind === 'launcher-update' ? '更新' : '下载'
         if (status.success) app.notify(operation === 'update' && status.download_async === false ? '已是最新版本，无需更新' : `游戏${action}完成`, 'success')
@@ -294,6 +300,7 @@ async function monitorDownload(taskId, initial = {}) {
       }
     } catch (error) {
       if (generation !== downloadGeneration) return
+      activeTaskId.value = ''
       app.notify(error.message || '获取下载进度失败', 'error')
       return
     }
@@ -326,6 +333,7 @@ function openInstall() {
   installModalOpen.value = true
 }
 async function install() {
+  if (operationMessage.value) return
   if (!targetDir.value) return chooseDirectory()
   const scope = captureSelection()
   const target = targetDir.value
@@ -347,9 +355,9 @@ async function install() {
     if (pending?.success === false) throw new Error(pending.error || '启动游戏下载失败')
     const stillCurrent = selectionMatches(scope)
     if (pending?.status === 'pending' && pending.task_id) {
-      if (stillCurrent) beginDownload(pending, 'launcher-install')
+      beginDownload(pending, 'launcher-install', scope.gameId, scope.distributionId)
       if (stillCurrent) installModalOpen.value = false
-      refreshIfCurrent(scope).catch(() => {})
+      await refreshIfCurrent(scope)
       app.notify(`${scope.title}下载已在后台开始`, 'success')
     } else {
       if (stillCurrent) installModalOpen.value = false
@@ -357,7 +365,7 @@ async function install() {
       app.notify(`${scope.title}游戏文件已就绪`, 'success')
     }
     return pending
-  }, { optional: true })
+  }, { optional: true, gameId: scope.gameId })
 }
 async function locate() {
   const scope = captureSelection()
@@ -371,18 +379,19 @@ async function locate() {
     app.notify('已切换游戏，本次路径选择未应用', 'warning')
     return
   }
+  if (operationMessage.value) return
   const imported = await app.mutate('locate-game', '/launcher-locate', {
     method: 'POST',
     body: {
       game_id: scope.gameId, path: picked.path,
       ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
     },
-  }, { reload: false, optional: true })
+  }, { gameId: scope.gameId, reload: false, optional: true })
   reportLegacyPostImport(imported)
   await refreshIfCurrent(scope)
 }
 async function update({ repair = canRepairMissing.value } = {}) {
-  if ((!installed.value && !canRepairMissing.value) || !distribution.value?.can_update) return
+  if (operationMessage.value || (!installed.value && !canRepairMissing.value) || !distribution.value?.can_update) return
   const scope = captureSelection()
   gameSettingsOpen.value = false
   const explicitMode = app.supportsFeverUpdateModes.value
@@ -397,16 +406,15 @@ async function update({ repair = canRepairMissing.value } = {}) {
     })
     const action = explicitMode && (pending?.operation === 'repair' || (!pending?.operation && repair)) ? '修复' : '更新'
     if (pending?.success === false) throw new Error(pending.error || `游戏${action}失败`)
-    const stillCurrent = selectionMatches(scope)
     if (pending?.status === 'pending' && pending.task_id) {
-      if (stillCurrent) beginDownload(pending, 'launcher-update')
-      refreshIfCurrent(scope).catch(() => {})
+      beginDownload(pending, 'launcher-update', scope.gameId, scope.distributionId)
+      await refreshIfCurrent(scope)
       app.notify(`${scope.title}${action}已在后台开始`, 'success')
     } else {
       await refreshIfCurrent(scope)
       app.notify(`${scope.title}${action}完成`, 'success')
     }
-  }, { optional: true })
+  }, { optional: true, gameId: scope.gameId })
 }
 async function start() {
   const scope = captureSelection()
@@ -416,13 +424,13 @@ async function start() {
   await refreshIfCurrent(scope)
 }
 async function remove() {
-  if (!installation.value) return
+  if (!installation.value || operationMessage.value) return
   const scope = captureSelection()
   const confirmed = await showConfirm('只删除启动器中的安装记录，不会删除磁盘中的游戏文件。', { title: '移除安装记录', confirmText: '移除', danger: true })
-  if (!confirmed || !selectionMatches(scope)) return
+  if (!confirmed || !selectionMatches(scope) || operationMessage.value) return
   await app.mutate('remove-install', '/launcher-remove-installation', {
     query: { game_id: scope.gameId, installation_id: scope.installationId },
-  }, { reload: false })
+  }, { gameId: scope.gameId, reload: false })
   await refreshIfCurrent(scope)
   gameSettingsOpen.value = false
 }
@@ -443,7 +451,7 @@ async function importFever() {
       path: feverSnapshot.path || '',
     },
   }, {
-    reload: false,
+    gameId: scope.gameId, reload: false,
     startMessage: '正在从发烧平台读取并校验游戏记录…',
     successMessage: '已从发烧平台导入游戏',
   })
@@ -460,17 +468,22 @@ async function importFeverList() {
   }
   const item = (data.games || []).find(row => cmpGameId(row.game_id, scope.gameId) || cmpGameId(row.matched_game_id, scope.gameId)) || data.games?.[0]
   if (!item) return app.notify('没有找到可导入的发烧游戏平台记录', 'warning')
+  const gameId = item.matched_game_id || item.game_id
+  const launcher = await app.requestLauncher(gameId, { force: true })
+  if (!Array.isArray(launcher?.distributions)) return app.notify('无法读取游戏安装状态，请重试', 'warning')
+  const blocked = importing.operationMessage(gameId)
+  if (blocked) return app.notify(blocked, 'warning')
   const updateAfterImport = app.supportsFeverUpdateModes.value
   const imported = await app.mutate('fever-list', '/launcher-import-fever', {
     method: updateAfterImport ? 'POST' : 'GET',
     query: {
       ...(updateAfterImport ? { update_after_import: 1 } : {}),
-      game_id: item.matched_game_id || item.game_id,
+      game_id: gameId,
       distribution_id: item.distribution_id ?? -1,
       path: item.path || '',
     },
   }, {
-    reload: false,
+    gameId, reload: false,
     startMessage: '正在从发烧平台读取并校验游戏记录…',
     successMessage: '已从发烧平台导入游戏',
   })
@@ -538,10 +551,10 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
 
       <LauncherControls
         :download="downloadVisual"
-        :accent="!downloadActive && launcherReady && !app.state.busy"
+        :accent="!downloadActive && launcherReady && !busyAction"
         :brand-style="brandButtonStyle"
         :locate-visible="!installed && !canImportFever && Boolean(distribution?.can_download)"
-        :locate-disabled="Boolean(app.state.busy)"
+        :locate-disabled="Boolean(operationMessage || busyAction)"
         @settings="gameSettingsOpen = true"
         @locate="locate"
       >
@@ -550,11 +563,12 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
             <span class="download-control-label"><Play v-if="downloadDisplay.action === 'resume'" :size="18" /><Pause v-else-if="downloadDisplay.action === 'pause'" :size="18" />{{ downloadDisplay.actionLabel }}</span>
           </button>
           <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="20" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
-          <button v-else-if="(installed && needsUpdate) || canRepairMissing" class="primary large" :disabled="Boolean(app.state.busy)" @click="update"><MotionProgressRing v-if="app.state.busy === 'update'" :size="18" :aria-label="canRepairMissing ? '正在修复游戏' : '正在更新游戏'" /><Download v-else />{{ app.state.busy === 'update' ? (canRepairMissing ? '正在修复…' : '正在更新…') : canRepairMissing ? '修复游戏' : '更新游戏' }}</button>
-          <button v-else-if="installed" class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><MotionProgressRing v-if="app.state.busy === 'start'" :size="20" aria-label="正在启动游戏" /><Play v-else />{{ app.state.busy === 'start' ? '正在启动…' : '开始游戏' }}</button>
-          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="20" aria-label="正在导入游戏" /><Download v-else />{{ app.state.busy === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
-          <button v-else-if="distribution?.can_download" class="primary large" :disabled="Boolean(app.state.busy)" @click="openInstall"><Download />下载游戏</button>
-          <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(app.state.busy)" :size="20" aria-label="正在定位游戏" /><FolderOpen v-else />{{ ['pick-game', 'locate-game'].includes(app.state.busy) ? '正在定位…' : '选择游戏路径' }}</button>
+          <button v-else-if="operationMessage" class="primary large" disabled>{{ operationMessage }}</button>
+          <button v-else-if="(installed && needsUpdate) || canRepairMissing" class="primary large" :disabled="Boolean(busyAction)" @click="update"><MotionProgressRing v-if="busyAction === 'update'" :size="18" :aria-label="canRepairMissing ? '正在修复游戏' : '正在更新游戏'" /><Download v-else />{{ busyAction === 'update' ? (canRepairMissing ? '正在修复…' : '正在更新…') : canRepairMissing ? '修复游戏' : '更新游戏' }}</button>
+          <button v-else-if="installed" class="primary large" :disabled="Boolean(busyAction)" @click="start"><MotionProgressRing v-if="busyAction === 'start'" :size="20" aria-label="正在启动游戏" /><Play v-else />{{ busyAction === 'start' ? '正在启动…' : '开始游戏' }}</button>
+          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(busyAction)" @click="importFever"><MotionProgressRing v-if="busyAction === 'fever'" :size="20" aria-label="正在导入游戏" /><Download v-else />{{ busyAction === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
+          <button v-else-if="distribution?.can_download" class="primary large" :disabled="Boolean(busyAction)" @click="openInstall"><Download />下载游戏</button>
+          <button v-else class="primary large" :disabled="Boolean(busyAction)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(busyAction)" :size="20" aria-label="正在定位游戏" /><FolderOpen v-else />{{ ['pick-game', 'locate-game'].includes(busyAction) ? '正在定位…' : '选择游戏路径' }}</button>
       </LauncherControls>
     </div>
 
@@ -563,8 +577,9 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
       :title="title"
       :path="targetDir"
       :path-status="targetStatus"
+      :blocked-reason="operationMessage"
       :requirements="installRequirements"
-      :busy="app.state.busy === 'install'"
+      :busy="busyAction === 'install'"
       :path-busy="choosingPath"
       @close="installModalOpen = false"
       @choose="chooseDirectory"
@@ -573,6 +588,7 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
 
     <GameSettingsModal
       :open="gameSettingsOpen"
+      :blocked-reason="operationMessage"
       :title="title"
       @close="gameSettingsOpen = false"
       @update="update"
