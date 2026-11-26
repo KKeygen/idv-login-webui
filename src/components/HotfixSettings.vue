@@ -59,17 +59,17 @@ async function followApply() {
   }
   taskResults.value = result.results
   taskId.value = ''
-  const installed = result.results.filter(item => item.status === 'applied').length
+  const staged = result.results.filter(item => item.status === 'staged').length
   const failed = result.results.filter(item => item.status === 'failed').length
   const skipped = result.results.filter(item => item.status === 'skipped').length
   const summary = [
-    installed ? `已写入 ${installed} 项` : '',
+    staged ? `已准备 ${staged} 项` : '',
     failed ? `${failed} 项失败` : '',
     skipped ? `${skipped} 项已跳过` : '',
   ].filter(Boolean).join('，')
   notice.value = {
     tone: result.success === true && !failed ? 'success' : 'warning',
-    text: summary || result.error || '本次没有写入更新。',
+    text: summary || result.error || '本次没有准备任何更新。',
   }
   if (result.restart_required && snapshot.value) snapshot.value = { ...snapshot.value, restart_required: true }
 }
@@ -154,7 +154,7 @@ onMounted(readStatus)
     <WinInfoBar v-if="snapshot && !snapshot.available && !error" :closable="false" severity="warning"
       :message="snapshot.available_reason || '官方热更新清单当前不可用。请检查连接后重新读取。'" />
     <WinInfoBar v-if="restartRequired" :closable="false" severity="warning"
-      message="更新已写入。重启工具后将加载更新，随后验证是否生效。"
+      message="更新已通过校验。重启工具后将应用更新。"
       :action-label="restarting ? '正在重启…' : '重启工具'" :action-disabled="busy || Boolean(taskId) || Boolean(error)" @action="restartTool" />
     <div v-if="loading && !snapshot" class="content-loading" role="status">
       <MotionProgressRing :size="28" aria-hidden="true" /><span>正在读取热更新状态…</span>
@@ -163,10 +163,10 @@ onMounted(readStatus)
       <div v-if="snapshot.available" class="setting-row hotfix-apply">
         <span>
           <strong>{{ availableCount ? `${availableCount} 项可应用` : '没有可应用的热更新' }}</strong>
-          <small v-if="availableCount">应用后，工具需要重启才能加载更新。</small>
+          <small v-if="availableCount">工具将先校验并准备更新，重启后应用。</small>
         </span>
         <button v-if="availableCount || applying" :class="restartRequired ? 'quiet-button' : 'primary'" type="button" :disabled="!canApply" @click="applyPending">
-          <MotionProgressRing v-if="applying" :size="16" aria-hidden="true" />{{ applying ? '正在应用…' : '应用全部待更新项' }}
+          <MotionProgressRing v-if="applying" :size="16" aria-hidden="true" />{{ applying ? '正在准备更新…' : '应用全部待更新项' }}
         </button>
       </div>
       <div v-for="group in groups" :key="group.title" class="hotfix-group">
