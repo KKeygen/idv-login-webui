@@ -216,7 +216,7 @@ function toggleWindowMaximize(event) {
             <header><div><small>游戏库</small><h2>选择游戏</h2></div></header>
             <div class="game-catalog-toolbar">
               <label class="game-catalog-search"><Search :size="18" /><input v-model="search" type="search" aria-label="搜索游戏名称或短 ID" :placeholder="`在 ${app.state.games.length} 个游戏中搜索`" /></label>
-              <button v-if="importing.supported.value" type="button" class="quiet-button catalog-import-button" :title="importing.state.task || importing.state.uncertain ? '查看导入进度或结果' : '导入已安装游戏'" @click="openImportWizard"><FolderOpen :size="17" /><span>导入已安装游戏</span><i v-if="importing.pending.value" class="import-task-dot" aria-label="正在导入"></i></button>
+              <button v-if="importing.supported.value" type="button" class="quiet-button catalog-import-button" :title="importing.state.task || importing.state.uncertain ? '查看导入状态' : '导入游戏'" @click="openImportWizard"><FolderOpen :size="17" /><span>导入游戏</span><i v-if="importing.pending.value" class="import-task-dot" aria-label="正在导入"></i></button>
             </div>
             <p v-if="!catalogItems.length" class="muted">没有找到匹配的游戏，请尝试其他名称或短 ID。</p>
             <TransitionGroup name="catalog-item" @before-leave="freezeLeavingElement" @leave-cancelled="clearLeavingElement" @after-enter="clearLeavingElement" tag="div" class="game-catalog-grid">

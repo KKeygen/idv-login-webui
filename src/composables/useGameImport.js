@@ -23,16 +23,23 @@ export function postImportDownload(result) {
   }
 }
 
-export function postImportMessage(result) {
-  const task = postImportDownload(result)
-  const action = task.operation === 'repair' ? '修复' : '更新'
-  if (task.status === 'up_to_date') return `游戏文件已就绪，无需${action}`
-  if (task.status === 'queued' || task.status === 'already_pending') {
-    return `已提交后台${action}，可在对应游戏页查看进度`
-  }
-  if (task.status === 'skipped') return task.error ? `未自动下载。${task.error}` : '未自动下载'
-  if (task.status === 'failed') return task.error || `未能启动自动${action}`
+export function importErrorMessage(detail = '') {
+  if (/(多个.*安装)/.test(detail)) return '找到多个安装，请选择要导入的游戏。'
+  if (/未找到可导入/.test(detail)) return '发烧游戏平台中找不到此游戏，请手动选择文件。'
+  if (/启动程序.*(?:不存在|移走)|请选择.*EXE|须.*\.exe/.test(detail)) return '找不到游戏程序，请重新选择 EXE 文件。'
+  if (/权限|拒绝访问|access denied/i.test(detail)) return '无法访问游戏文件，请检查权限。'
+  return '导入失败，请检查所选游戏和文件后重试。'
+}
+
+export function importResultWarning(result) {
+  const { status, error } = postImportDownload(result)
+  if (status === 'failed') return '游戏暂未就绪，请在游戏页重试。'
+  if (status === 'skipped' && /安装路径.*不匹配/.test(error)) return '无法确认游戏程序，请检查所选文件。'
   return ''
+}
+
+function importPathKey(path) {
+  return String(path || '').replaceAll('\\', '/').toLowerCase()
 }
 
 export function useGameImport() {
@@ -48,6 +55,17 @@ export function useGameImport() {
     if (distributionId == null || distributionId === '' || String(distributionId) === '-1') return ''
     const item = distributionsFor(gameId).find(item => String(item.distribution_id) === String(distributionId))
     return item?.launcher?.display_name || item?.name || item?.launcher?.app_name || `版本 ${distributionId}`
+  }
+  function distributionCorrection(gameId, requested, actual) {
+    if (String(requested) === String(actual) || requested == null || requested === '' || String(requested) === '-1') return ''
+    const title = distributionTitle(gameId, actual)
+    return title ? `已识别为「${title}」` : ''
+  }
+  function resultCorrection(result) {
+    if (result.success !== true || !state.draft.path || state.task?.source !== state.draft.source
+      || !cmpGameId(result.game_id, state.draft.game_id)
+      || importPathKey(result.path) !== importPathKey(state.draft.path)) return ''
+    return distributionCorrection(result.game_id, state.draft.distribution_id, result.distribution_id)
   }
   const manualDistributions = computed(() => distributionsFor(state.draft.game_id))
   const selectedDistribution = computed(() => {
@@ -85,7 +103,7 @@ export function useGameImport() {
       state.recentTasks = (Array.isArray(result.recent_tasks) ? result.recent_tasks : []).filter(validTask)
       return result
     } catch (error) {
-      if (generation === loadGeneration && !unavailable(error)) state.error = '无法读取导入状态，请确认工具仍在运行后重试'
+      if (generation === loadGeneration && !unavailable(error)) state.error = '无法查看导入状态，请确认工具仍在运行。'
       return null
     } finally {
       if (generation === loadGeneration) state.loading = false
@@ -110,7 +128,7 @@ export function useGameImport() {
       const data = await app.requestLauncher(state.draft.game_id)
       if (data?.success === false) throw new Error(data.error)
     } catch {
-      if (generation === loadGeneration) state.error = '未能读取游戏版本。可以重试，或继续由工具识别分发。'
+      if (generation === loadGeneration) state.error = '无法加载游戏版本，请重试。'
     } finally {
       if (generation === loadGeneration) state.loading = false
     }
@@ -132,7 +150,7 @@ export function useGameImport() {
       taskGeneration += 1
       state.polling = false
       pollingTaskId = ''
-      refreshGames(task).catch(() => app.notify('导入结果已读取，但游戏列表刷新失败，请稍后刷新', 'warning'))
+      refreshGames(task).catch(() => app.notify('无法刷新游戏列表，请稍后重试。', 'warning'))
     }
   }
 
@@ -212,7 +230,9 @@ export function useGameImport() {
       if (!/\.exe$/i.test(result.path)) throw new Error('请选择游戏的 EXE 启动程序，暂不支持快捷方式或目录')
       state.draft.path = result.path
     } catch (error) {
-      if (generation === pickerGeneration && !unavailable(error)) state.error = error.message || '选择游戏路径失败'
+      if (generation === pickerGeneration && !unavailable(error)) {
+        state.error = /EXE|权限/.test(error.message) ? importErrorMessage(error.message) : '无法选择文件，请重试。'
+      }
     } finally {
       if (generation === pickerGeneration) state.picking = false
     }
@@ -241,13 +261,13 @@ export function useGameImport() {
         state.uncertain = false
         if (result.status === 'done') {
           state.tasks = state.tasks.map(item => item.task_id === taskId ? state.task : item)
-          try { await refreshGames(state.task) } catch { app.notify('导入任务已结束，但游戏列表刷新失败，请稍后刷新', 'warning') }
+          try { await refreshGames(state.task) } catch { app.notify('无法刷新游戏列表，请稍后重试。', 'warning') }
           return
         }
         await new Promise(resolve => setTimeout(resolve, state.open && document.visibilityState !== 'hidden' ? 750 : 1800))
       }
     } catch {
-      if (generation === taskGeneration) state.error = '无法确认导入进度。后台任务可能仍在继续，请重新读取状态，不要重复导入'
+      if (generation === taskGeneration) state.error = '无法查看导入进度，请刷新。'
     } finally {
       if (generation === taskGeneration) { state.polling = false; pollingTaskId = '' }
     }
@@ -256,18 +276,18 @@ export function useGameImport() {
   async function recoverSubmission() {
     const result = await readState()
     if (!result) return
-    const pathKey = path => String(path || '').replaceAll('\\', '/').toLowerCase()
     const task = [...state.tasks, ...state.recentTasks].find(item => !submissionBaselineIds.has(item.task_id)
-      && cmpGameId(item.game_id, state.draft.game_id) && pathKey(item.path) === pathKey(state.draft.path)
+      && cmpGameId(item.game_id, state.draft.game_id) && importPathKey(item.path) === importPathKey(state.draft.path)
       && (state.draft.source !== 'fever' || state.draft.distribution_id === -1
         || String(item.distribution_id) === String(state.draft.distribution_id)))
     if (task) adoptTask(task)
-    else state.error = '尚未找到本次任务，请先检查游戏记录并重新读取状态；为避免重复提交，当前不会再次发起导入'
+    else state.error = '无法确认是否已导入，请刷新。'
   }
 
   async function submit() {
     if (!supported.value || state.step !== 1 || !canConfirm.value) return
     const draft = { ...state.draft, distribution_id: Number(selectedDistribution.value) }
+    state.draft.distribution_id = draft.distribution_id
     submissionBaselineIds = new Set([...state.tasks, ...state.recentTasks].map(item => item.task_id))
     state.submitting = true
     state.error = ''
@@ -287,7 +307,7 @@ export function useGameImport() {
       adoptTask({ source: draft.source, game_id: draft.game_id, path: draft.path, ...result, kind: 'game-import' })
     } catch (error) {
       if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        if (!unavailable(error)) state.error = error.message || '导入请求被拒绝，请检查所选游戏与路径'
+        if (!unavailable(error)) state.error = importErrorMessage(error.message)
       } else {
         // A lost response is not a failed write. Reattach before allowing any retry.
         state.uncertain = true
@@ -306,7 +326,7 @@ export function useGameImport() {
       if (result?.success !== true) throw new Error(result?.error || '未确认取消请求')
       if (result.task?.task_id === state.task?.task_id) state.task = { ...state.task, ...result.task }
       if (!state.polling) monitorTask(state.task)
-    } catch (error) { state.error = error.message || '未确认取消，请重新读取任务状态' }
+    } catch { state.error = '无法取消导入，请刷新。' }
     finally { state.controlling = false }
   }
 
@@ -319,7 +339,7 @@ export function useGameImport() {
       state.tasks = state.tasks.filter(item => item.task_id !== task.task_id)
       if (!state.open && state.task?.task_id === task.task_id) state.task = null
       return true
-    } catch { app.notify('结果已读状态未保存，下次打开可能再次展示', 'warning'); return false }
+    } catch { app.notify('无法关闭导入结果，请重试。', 'warning'); return false }
     finally { state.controlling = false }
   }
   function close() {
@@ -346,5 +366,5 @@ export function useGameImport() {
     state.polling = false; state.loading = false; state.picking = false; pollingTaskId = ''
   }
 
-  return { state: readonly(state), supported, busy, pending, canConfirm, manualDistributions, selectedDistribution, distributionTitle, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
+  return { state: readonly(state), supported, busy, pending, canConfirm, manualDistributions, selectedDistribution, distributionTitle, distributionCorrection, resultCorrection, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
 }

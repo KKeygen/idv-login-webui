@@ -6,10 +6,10 @@ import LauncherControls from './LauncherControls.vue'
 import LauncherNewsPanel from './LauncherNewsPanel.vue'
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { Clock3, Download, FolderOpen, Pause, Play } from '@lucide/vue'
-import { openExternal, request, resolveTask, resourceUrl } from '../api'
+import { ApiError, openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { supportsNextFeverFeatures } from '../featureVersions'
-import { postImportDownload, postImportMessage, useGameImport } from '../composables/useGameImport'
+import { importErrorMessage, importResultWarning, postImportDownload, useGameImport } from '../composables/useGameImport'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -261,14 +261,26 @@ watch(() => importing.state.task, task => {
   if (task?.status === 'done' && task.success) followPostImport(task)
 })
 
-function reportLegacyPostImport(result, gameId) {
+async function submitLegacyImport(name, endpoint, options, optional = false) {
+  return app.guarded(name, async () => {
+    try {
+      const result = await request(endpoint, options)
+      if (result?.success === false) throw new Error(result.error)
+      return result
+    } catch (error) {
+      if (optional && error instanceof ApiError && error.status === 404) throw error
+      throw new Error(importErrorMessage(error.message))
+    }
+  }, { optional })
+}
+
+function reportLegacyPostImport(result, gameId, requestedDistribution) {
   if (!result?.success) return
   followPostImport(result)
-  const distribution = importing.distributionTitle(result.game_id || gameId, result.distribution_id)
-  const message = ['路径已登记', distribution && `已按「${distribution}」处理`, postImportMessage(result)]
-    .filter(Boolean).join('。')
-  const { status } = postImportDownload(result)
-  app.notify(message, ['failed', 'skipped'].includes(status) ? 'warning' : 'success')
+  const correction = importing.distributionCorrection(result.game_id || gameId, requestedDistribution, result.distribution_id)
+  const warning = importResultWarning(result)
+  const message = ['已导入', correction, warning].filter(Boolean).join('。')
+  app.notify(message, warning ? 'warning' : 'success')
 }
 
 async function monitorDownload(taskId, initial = {}) {
@@ -377,14 +389,14 @@ async function locate() {
     app.notify('已切换游戏，本次路径选择未应用', 'warning')
     return
   }
-  const imported = await app.mutate('locate-game', '/launcher-locate', {
+  const imported = await submitLegacyImport('locate-game', '/launcher-locate', {
     method: 'POST',
     body: {
       game_id: scope.gameId, path: picked.path, distribution_id: selectedDistribution,
       ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
     },
-  }, { reload: false, optional: true, successMessage: '' })
-  reportLegacyPostImport(imported, scope.gameId)
+  }, true)
+  reportLegacyPostImport(imported, scope.gameId, selectedDistribution)
   await refreshIfCurrent(scope)
 }
 async function update({ repair = canRepairMissing.value } = {}) {
@@ -435,25 +447,22 @@ async function remove() {
 async function importFever() {
   const scope = captureSelection()
   const feverSnapshot = { ...fever.value }
+  const selectedDistribution = feverSnapshot.distribution_id ?? scope.distributionId
   if (importing.supported.value) return importing.openWizard({
     source: 'fever', gameId: scope.gameId,
-    distributionId: feverSnapshot.distribution_id ?? scope.distributionId, path: feverSnapshot.path || '',
+    distributionId: selectedDistribution, path: feverSnapshot.path || '',
   })
   const updateAfterImport = app.supportsFeverUpdateModes.value
-  const imported = await app.mutate('fever', '/launcher-import-fever', {
+  const imported = await submitLegacyImport('fever', '/launcher-import-fever', {
     method: updateAfterImport ? 'POST' : 'GET',
     query: {
       ...(updateAfterImport ? { update_after_import: 1 } : {}),
       game_id: scope.gameId,
-      distribution_id: feverSnapshot.distribution_id ?? scope.distributionId,
+      distribution_id: selectedDistribution,
       path: feverSnapshot.path || '',
     },
-  }, {
-    reload: false,
-    startMessage: '正在从发烧平台读取并校验游戏记录…',
-    successMessage: '',
   })
-  reportLegacyPostImport(imported, scope.gameId)
+  reportLegacyPostImport(imported, scope.gameId, selectedDistribution)
   await refreshIfCurrent(scope)
 }
 async function importFeverList() {
@@ -467,7 +476,7 @@ async function importFeverList() {
   const item = (data.games || []).find(row => cmpGameId(row.game_id, scope.gameId) || cmpGameId(row.matched_game_id, scope.gameId)) || data.games?.[0]
   if (!item) return app.notify('没有找到可导入的发烧游戏平台记录', 'warning')
   const updateAfterImport = app.supportsFeverUpdateModes.value
-  const imported = await app.mutate('fever-list', '/launcher-import-fever', {
+  const imported = await submitLegacyImport('fever-list', '/launcher-import-fever', {
     method: updateAfterImport ? 'POST' : 'GET',
     query: {
       ...(updateAfterImport ? { update_after_import: 1 } : {}),
@@ -475,12 +484,8 @@ async function importFeverList() {
       distribution_id: item.distribution_id ?? -1,
       path: item.path || '',
     },
-  }, {
-    reload: false,
-    startMessage: '正在从发烧平台读取并校验游戏记录…',
-    successMessage: '',
   })
-  reportLegacyPostImport(imported, scope.gameId)
+  reportLegacyPostImport(imported, item.matched_game_id || item.game_id, item.distribution_id ?? -1)
   await refreshIfCurrent(scope)
 }
 async function locateFromSettings() { gameSettingsOpen.value = false; await locate() }
@@ -558,9 +563,9 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
           <button v-else-if="!launcherReady" class="primary large" disabled><MotionProgressRing :size="20" aria-label="正在读取游戏状态" />正在读取游戏状态…</button>
           <button v-else-if="(installed && needsUpdate) || canRepairMissing" class="primary large" :disabled="Boolean(app.state.busy)" @click="update"><MotionProgressRing v-if="app.state.busy === 'update'" :size="18" :aria-label="canRepairMissing ? '正在修复游戏' : '正在更新游戏'" /><Download v-else />{{ app.state.busy === 'update' ? (canRepairMissing ? '正在修复…' : '正在更新…') : canRepairMissing ? '修复游戏' : '更新游戏' }}</button>
           <button v-else-if="installed" class="primary large" :disabled="Boolean(app.state.busy)" @click="start"><MotionProgressRing v-if="app.state.busy === 'start'" :size="20" aria-label="正在启动游戏" /><Play v-else />{{ app.state.busy === 'start' ? '正在启动…' : '开始游戏' }}</button>
-          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="20" aria-label="正在导入游戏" /><Download v-else />{{ app.state.busy === 'fever' ? '正在导入…' : '从发烧平台导入' }}</button>
+          <button v-else-if="canImportFever" class="primary large" :disabled="Boolean(app.state.busy)" @click="importFever"><MotionProgressRing v-if="app.state.busy === 'fever'" :size="20" aria-label="正在导入" /><Download v-else />导入游戏</button>
           <button v-else-if="distribution?.can_download" class="primary large" :disabled="Boolean(app.state.busy)" @click="openInstall"><Download />下载游戏</button>
-          <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(app.state.busy)" :size="20" aria-label="正在定位游戏" /><FolderOpen v-else />{{ ['pick-game', 'locate-game'].includes(app.state.busy) ? '正在定位…' : '选择游戏路径' }}</button>
+          <button v-else class="primary large" :disabled="Boolean(app.state.busy)" @click="locate"><MotionProgressRing v-if="['pick-game', 'locate-game'].includes(app.state.busy)" :size="20" :aria-label="app.state.busy === 'pick-game' ? '正在选择文件' : '正在导入'" /><FolderOpen v-else />导入游戏</button>
       </LauncherControls>
     </div>
 
