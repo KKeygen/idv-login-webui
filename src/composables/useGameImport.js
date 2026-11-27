@@ -184,6 +184,7 @@ export function useGameImport() {
       return
     }
     monitorTask(rememberTask(task))
+    app.notify('导入已经开始')
     if (showTarget && task.game_id && (app.state.view !== 'launcher'
       || !cmpGameId(app.state.gameId, task.game_id) || app.state.distributionId !== String(task.distribution_id))) {
       app.selectRailTab({ game_id: task.game_id, distribution_id: task.distribution_id })
