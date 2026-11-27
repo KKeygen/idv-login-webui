@@ -7,7 +7,8 @@ import { freezeLeavingElement, clearLeavingElement } from '../motion'
 import { request, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, isGameInstalled, shortGameId, useAppStore } from '../composables/useAppStore'
 
-import { useGameImport } from '../composables/useGameImport'
+import { importProgressValue, importTargetKey, useGameImport } from '../composables/useGameImport'
+import MotionProgressRing from './MotionProgressRing.vue'
 
 const app = useAppStore()
 const importing = useGameImport()
@@ -106,21 +107,32 @@ async function chooseCatalog(item, event) {
   await chooseGame(item.game.game_id)
 }
 let dragCandidate = null
-const railItems = computed(() => app.state.railTabs.map(tab => {
-  const game = app.state.games.find(item => cmpGameId(item.game_id, tab.game_id)) || { game_id: tab.game_id }
-  const launcher = app.state.railLaunchers.find(item => cmpGameId(item.game_id, tab.game_id))
-  const distribution = launcher?.distributions?.find(item => String(item.distribution_id) === String(tab.distribution_id)) || null
-  const title = distribution?.launcher?.display_name || distribution?.launcher?.app_name || titleOf(game)
-  return {
-    key: tab.key,
-    tab,
-    title,
-    icon: iconOfDistribution(distribution, game),
-    fallback: title.slice(0, 1),
-    active: cmpGameId(tab.game_id, app.state.gameId)
-      && String(tab.distribution_id) === String(app.state.distributionId),
+const railItems = computed(() => {
+  // Temporary targets are rendered alongside installed tabs without changing saved order.
+  const tabs = new Map(app.state.railTabs.map(tab => [tab.key, tab]))
+  if (importing.supported.value) {
+    for (const task of importing.state.tasks) {
+      if (!task.game_id || (task.status !== 'pending' && !(task.success && task.installation_id))) continue
+      const key = importTargetKey(task.game_id, task.distribution_id)
+      if (!tabs.has(key)) tabs.set(key, { key, game_id: task.game_id, distribution_id: task.distribution_id ?? -1, temporary: true })
+    }
   }
-}))
+  return [...tabs.values()].map(tab => {
+    const game = app.state.games.find(item => cmpGameId(item.game_id, tab.game_id)) || { game_id: tab.game_id }
+    const launcher = app.state.railLaunchers.find(item => cmpGameId(item.game_id, tab.game_id))
+    const distribution = launcher?.distributions?.find(item => String(item.distribution_id) === String(tab.distribution_id)) || null
+    const title = distribution?.launcher?.display_name || distribution?.launcher?.app_name || titleOf(game)
+    return {
+      key: tab.key,
+      tab,
+      title,
+      icon: iconOfDistribution(distribution, game),
+      fallback: title.slice(0, 1),
+      importing: importing.pendingFor(tab.game_id, tab.distribution_id),
+      active: tab.key === importTargetKey(app.state.gameId, app.state.distributionId),
+    }
+  })
+})
 const catalogItems = computed(() => app.state.games.map(game => ({
   game,
   key: game.game_id,
@@ -200,10 +212,11 @@ function toggleWindowMaximize(event) {
 </script>
 
 <template>
-  <header class="game-rail" :class="{ open: open || pinned }" @pointerenter="emit('pointer-enter', $event)" @pointerleave="emit('pointer-leave', $event)" @pointerdown="prepareWindowDrag" @pointermove="continueWindowDrag" @pointerup="cancelWindowDrag" @pointercancel="cancelWindowDrag" @dblclick="toggleWindowMaximize">
+  <header class="game-rail" :class="{ open: open || pinned || importing.pendingImports.value.some(task => task.game_id) }" @pointerenter="emit('pointer-enter', $event)" @pointerleave="emit('pointer-leave', $event)" @pointerdown="prepareWindowDrag" @pointermove="continueWindowDrag" @pointerup="cancelWindowDrag" @pointercancel="cancelWindowDrag" @dblclick="toggleWindowMaximize">
     <TransitionGroup name="rail-item" tag="div" class="game-rail-items">
-      <button v-for="item in railItems" :key="item.key" class="game-tab" :class="{ active: item.active, 'is-dragging': draggingKey === item.key }" :aria-label="item.title" draggable="true" @dragstart="dragStart($event, item)" @dragend="draggingKey = ''" @dragover.prevent @drop="dropItem($event, item)" @keydown="moveByKeyboard($event, item)" @click="activateRailItem(item)">
+      <button v-for="item in railItems" :key="item.key" class="game-tab" :class="{ active: item.active, 'is-dragging': draggingKey === item.key }" :aria-label="item.importing ? `${item.title}，正在导入` : item.title" :draggable="!item.tab.temporary" @dragstart="dragStart($event, item)" @dragend="draggingKey = ''" @dragover.prevent @drop="dropItem($event, item)" @keydown="moveByKeyboard($event, item)" @click="activateRailItem(item)">
         <span class="game-tab-icon"><img v-if="item.icon" :src="item.icon" alt="" width="40" height="40" decoding="async" /><span v-else>{{ item.fallback }}</span><span class="game-icon-mask" aria-hidden="true"></span></span>
+        <MotionProgressRing v-if="item.importing" class="game-tab-import-progress" :size="20" :value="importProgressValue(item.importing)" :aria-label="`${item.title}正在导入`" />
       </button>
       <button key="add-game" class="game-tab add-game-tab" aria-label="打开游戏库" @click="openCatalog">
         <span class="game-tab-icon"><Plus :size="21" /></span>
@@ -216,7 +229,7 @@ function toggleWindowMaximize(event) {
             <header><div><small>游戏库</small><h2>选择游戏</h2></div></header>
             <div class="game-catalog-toolbar">
               <label class="game-catalog-search"><Search :size="18" /><input v-model="search" type="search" aria-label="搜索游戏名称或短 ID" :placeholder="`在 ${app.state.games.length} 个游戏中搜索`" /></label>
-              <button v-if="importing.supported.value" type="button" class="quiet-button catalog-import-button" :title="importing.state.task || importing.state.uncertain ? '查看导入状态' : '导入游戏'" @click="openImportWizard"><FolderOpen :size="17" /><span>导入游戏</span><i v-if="importing.pending.value" class="import-task-dot" aria-label="正在导入"></i></button>
+              <button v-if="importing.supported.value" type="button" class="quiet-button catalog-import-button" title="导入游戏" @click="openImportWizard"><FolderOpen :size="17" /><span>导入游戏</span></button>
             </div>
             <p v-if="!catalogItems.length" class="muted">没有找到匹配的游戏，请尝试其他名称或短 ID。</p>
             <TransitionGroup name="catalog-item" @before-leave="freezeLeavingElement" @leave-cancelled="clearLeavingElement" @after-enter="clearLeavingElement" tag="div" class="game-catalog-grid">

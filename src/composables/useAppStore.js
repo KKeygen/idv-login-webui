@@ -30,6 +30,7 @@ const accountRequests = new Map()
 const accountDataByGame = new Map()
 const ACCOUNT_CACHE_TTL = 30_000
 let gamesLoadRequest = null
+let preferFeaturedCatalog
 
 function gameCacheKey(gameId = '') {
   return shortGameId(gameId)
@@ -85,7 +86,7 @@ function uniqueGames(games) {
   })
 }
 
-export function normalizeGames(data = {}) {
+export function normalizeGames(data = {}, { preferFeatured = false } = {}) {
   const records = uniqueGames(Array.isArray(data.games) ? data.games : [])
   const catalog = uniqueGames(Array.isArray(data.catalog) ? data.catalog : [])
   const catalogAll = uniqueGames(Array.isArray(data.catalog_all) ? data.catalog_all : catalog)
@@ -98,7 +99,13 @@ export function normalizeGames(data = {}) {
     }
   })
   for (const item of catalog) if (!merged.some(existing => cmpGameId(existing.game_id, item.game_id))) merged.push(item)
-  return { records, catalog, merged: merged.sort((a, b) => feverRank(a) - feverRank(b)) }
+  merged.sort((a, b) => feverRank(a) - feverRank(b))
+  if (preferFeatured && !records.length) {
+    const ranks = { h55: 0, g37: 1 }
+    const rank = game => ranks[shortGameId(game.short_game_id || game.game_id)] ?? 2
+    merged.sort((a, b) => rank(a) - rank(b))
+  }
+  return { records, catalog, merged }
 }
 
 export function isGameInstalled(game = {}) {
@@ -130,9 +137,14 @@ function rememberRailLauncher(data) {
   const game = state.games.find(item => cmpGameId(item.game_id, data.game_id))
   const installed = isGameInstalled(game) || data.distributions.some(item => item.installation?.installed)
   if (!installed) return
-  const available = data.distributions
-    .filter(item => item.can_download || item.installation?.installed)
-    .map(item => ({ game_id: data.game_id, distribution_id: item.distribution_id }))
+  const available = mergeGameRailTabs(
+    data.distributions
+      .filter(item => item.can_download || item.installation?.installed)
+      .map(item => ({ game_id: data.game_id, distribution_id: item.distribution_id })),
+    (game?.installations || [])
+      .filter(item => item.installed)
+      .map(item => ({ game_id: data.game_id, distribution_id: item.distribution_id ?? -1 })),
+  )
   const availableKeys = new Set(available.map(tab => gameRailTabKey(tab.game_id, tab.distribution_id)))
   const retained = state.railTabs.filter(tab => (
     !cmpGameId(tab.game_id, data.game_id) || availableKeys.has(tab.key)
@@ -233,7 +245,9 @@ async function loadGames() {
       const data = await request('/list-games')
       if (data?.success === false) throw new Error(data.error || '获取游戏列表失败')
       state.connection = 'connected'
-      const normalized = normalizeGames(data)
+      const preferFeatured = preferFeaturedCatalog ?? (!state.gameId && !state.railTabs.length)
+      const normalized = normalizeGames(data, { preferFeatured })
+      preferFeaturedCatalog = preferFeatured && !normalized.records.length
       state.games = normalized.merged
       state.catalog = normalized.catalog
       preloadLauncherImages(state.games, { limit: 8 })

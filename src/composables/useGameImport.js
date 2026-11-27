@@ -1,18 +1,29 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, request, resolveTask } from '../api'
 import { supportsNextFeverFeatures } from '../featureVersions'
-import { cmpGameId, useAppStore } from './useAppStore'
+import { cmpGameId, gameTitle, useAppStore } from './useAppStore'
+import { gameRailTabKey } from '../gameRailStorage'
 
+const pollers = reactive(new Map())
 const state = reactive({
   open: false, loading: false, picking: false, submitting: false, controlling: false,
-  polling: false, unavailable: false, uncertain: false, step: 0, mode: 'manual', error: '',
-  candidates: [], tasks: [], recentTasks: [], task: null, draft: { source: 'manual', game_id: '', path: '', distribution_id: -1 },
+  unavailable: false, uncertain: false, step: 0, mode: 'manual', error: '',
+  candidates: [], tasks: [], recentTasks: [], selectedTaskId: '', draft: { source: 'manual', game_id: '', path: '', distribution_id: -1 },
+  get task() { return this.tasks.find(item => item.task_id === this.selectedTaskId) || null },
+  get polling() { return pollers.has(this.selectedTaskId) },
 })
 let loadGeneration = 0
 let pickerGeneration = 0
-let taskGeneration = 0
-let pollingTaskId = ''
 let submissionBaselineIds = new Set()
+
+export function importTargetKey(gameId, distributionId) {
+  return gameRailTabKey(gameId, distributionId === '' ? -1 : distributionId ?? -1)
+}
+
+export function importProgressValue(task) {
+  const value = task?.progress_percent
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : Number.NaN
+}
 
 export function postImportDownload(result) {
   return {
@@ -48,6 +59,11 @@ export function useGameImport() {
     && app.state.nativeCapabilities?.import_tasks_v1 === true && !state.unavailable)
   const busy = computed(() => state.loading || state.picking || state.submitting || state.controlling)
   const pending = computed(() => state.task?.status === 'pending')
+  const pendingImports = computed(() => supported.value ? state.tasks.filter(task => task.status === 'pending') : [])
+  function pendingFor(gameId, distributionId) {
+    const key = importTargetKey(gameId, distributionId)
+    return pendingImports.value.find(task => task.game_id && importTargetKey(task.game_id, task.distribution_id) === key)
+  }
   function distributionsFor(gameId) {
     return app.state.railLaunchers.find(item => cmpGameId(item.game_id, gameId))?.distributions || []
   }
@@ -61,11 +77,19 @@ export function useGameImport() {
     const title = distributionTitle(gameId, actual)
     return title ? `已识别为「${title}」` : ''
   }
-  function resultCorrection(result) {
-    if (result.success !== true || !state.draft.path || state.task?.source !== state.draft.source
-      || !cmpGameId(result.game_id, state.draft.game_id)
-      || importPathKey(result.path) !== importPathKey(state.draft.path)) return ''
-    return distributionCorrection(result.game_id, state.draft.distribution_id, result.distribution_id)
+  function resultCorrection(result, task = state.task) {
+    if (result.success !== true || !cmpGameId(result.game_id, task?.game_id)
+      || importPathKey(result.path) !== importPathKey(task?.path)) return ''
+    return distributionCorrection(result.game_id, task.requested_distribution_id, result.distribution_id)
+  }
+
+  function rememberTask(task) {
+    const index = state.tasks.findIndex(item => item.task_id === task.task_id)
+    const existing = state.tasks[index]
+    if (existing?.status === 'done' && task.status === 'pending') return existing
+    if (existing) state.tasks.splice(index, 1, { ...existing, ...task })
+    else state.tasks.push(task)
+    return state.tasks[existing ? index : state.tasks.length - 1]
   }
   const manualDistributions = computed(() => distributionsFor(state.draft.game_id))
   const selectedDistribution = computed(() => {
@@ -78,7 +102,7 @@ export function useGameImport() {
   const canConfirm = computed(() => Boolean(state.draft.game_id && state.draft.path
     && (state.draft.source === 'fever' || /\.exe$/i.test(state.draft.path))
     && (state.draft.source === 'fever' || manualDistributions.value.length <= 1 || selectedDistribution.value !== '-1')
-    && !busy.value && !state.uncertain))
+    && !pendingFor(state.draft.game_id, selectedDistribution.value) && !busy.value && !state.uncertain))
 
   function unavailable(error) {
     if (!(error instanceof ApiError) || error.status !== 404) return false
@@ -99,7 +123,17 @@ export function useGameImport() {
       if (result?.success === false || !Array.isArray(result?.candidates) || !Array.isArray(result?.active_tasks)) throw new Error('导入状态数据不完整')
       state.candidates = result.candidates.filter(item => item?.source === 'fever' && item.game_id && item.path)
       const validTask = item => item?.kind === 'game-import' && item.task_id && ['pending', 'done'].includes(item.status)
-      state.tasks = result.active_tasks.filter(validTask)
+      const active = result.active_tasks.filter(validTask)
+      for (const task of active) {
+        // Keep the active poll as the source of progress and its final outcome.
+        if (pollers.has(task.task_id)) continue
+        const previous = state.tasks.find(item => item.task_id === task.task_id)
+        const current = rememberTask(task)
+        if (current.status === 'pending') monitorTask(current)
+        else if (previous?.status === 'pending') completeTask(current)
+      }
+      const activeIds = new Set(active.map(task => task.task_id))
+      state.tasks = state.tasks.filter(task => activeIds.has(task.task_id) || pollers.has(task.task_id))
       state.recentTasks = (Array.isArray(result.recent_tasks) ? result.recent_tasks : []).filter(validTask)
       return result
     } catch (error) {
@@ -138,51 +172,44 @@ export function useGameImport() {
     if (await readState()) await readManualDistributions()
   }
 
-  function adoptTask(task) {
-    // A state-list response may predate the poll that already finished this task.
-    if (state.task?.task_id === task.task_id && state.task.status === 'done' && task.status === 'pending') task = state.task
-    state.task = { ...task }
+  function openTask(task) {
+    if (!task?.task_id || state.picking || state.controlling) return
+    const current = rememberTask(task)
+    state.open = true
+    state.selectedTaskId = current.task_id
     state.step = 2
     state.uncertain = false
     state.error = ''
-    if (task.status === 'pending') monitorTask(task)
-    else {
-      taskGeneration += 1
-      state.polling = false
-      pollingTaskId = ''
-      refreshGames(task).catch(() => app.notify('无法刷新游戏列表，请稍后重试。', 'warning'))
-    }
+    if (current.status === 'pending') monitorTask(current)
+    else if (current.success) refreshGames(current).catch(() => app.notify('无法刷新游戏列表，请稍后重试。', 'warning'))
   }
 
   async function restore({ autoOpen = false } = {}) {
     const result = await readState()
-    if (!result || state.submitting) return
-    const task = state.tasks.find(item => item.task_id === state.task?.task_id)
-      || state.tasks.find(item => item.status === 'pending') || state.tasks[0]
-    if (!task) return
-    if (autoOpen) state.open = true
-    adoptTask(task)
+    if (!result || state.submitting || state.open) return
+    const task = state.tasks.find(item => item.status === 'pending') || state.tasks[0]
+    if (task && autoOpen) openTask(task)
+    return task
   }
 
-  async function openWizard({ source = 'manual', gameId = app.state.gameId, distributionId = -1, path = '' } = {}) {
+  async function openWizard({ source = 'manual', gameId, distributionId = -1, path = '' } = {}) {
     if (!supported.value || state.submitting || state.picking || state.controlling) return
     state.open = true
-    if (pending.value || state.uncertain) {
+    if (state.uncertain) {
       state.step = 2
-      if (!state.polling && state.task?.task_id) monitorTask(state.task)
       return
     }
+    state.selectedTaskId = ''
     state.mode = source === 'fever' ? 'fever' : 'manual'
     state.step = 0
     state.draft = {
-      source: 'manual', game_id: gameId || '', path: '',
+      source: 'manual', game_id: gameId || app.state.gameId || '', path: '',
       distribution_id: state.mode === 'manual' && distributionId !== '' ? distributionId ?? -1 : -1,
     }
     const result = await readState()
     if (!result || !state.open) return
-    const existing = state.tasks.find(item => item.status === 'pending') || state.tasks[0]
-    if (existing) { adoptTask(existing); return }
-    state.task = null
+    const existing = gameId && pendingFor(gameId, distributionId)
+    if (existing) { openTask(existing); return }
     if (state.mode === 'fever') {
       const preferred = state.candidates.find(item => (
         cmpGameId(item.game_id, gameId)
@@ -244,32 +271,52 @@ export function useGameImport() {
     if (state.step === 1) state.step = 0
   }
 
+  async function completeTask(task) {
+    // Keep the temporary progress target until a successful import is on the installed rail.
+    if (task.success) {
+      try { await refreshGames(task) } catch { app.notify('无法刷新游戏列表，请稍后重试。', 'warning') }
+    }
+    rememberTask(task)
+    if (!state.open || state.selectedTaskId !== task.task_id) {
+      const game = app.state.games.find(item => cmpGameId(item.game_id, task.game_id))
+      const title = task.game_id ? gameTitle(game || {}, task.game_id) : '游戏'
+      if (task.success) {
+        const warning = importResultWarning(task)
+        app.notify([`${title}已导入`, resultCorrection(task, task), warning].filter(Boolean).join('。'), warning ? 'warning' : 'success')
+      } else if (!task.cancelled && task.phase !== 'cancelled') {
+        app.notify(`${title}：${importErrorMessage(task.error)}`, 'error')
+      }
+    }
+  }
+
   async function monitorTask(task) {
-    if (!supported.value || !task?.task_id || (state.polling && pollingTaskId === task.task_id)) return
-    const generation = ++taskGeneration
+    if (!supported.value || !task?.task_id || pollers.has(task.task_id)) return
     const taskId = task.task_id
-    pollingTaskId = taskId
-    state.task = { ...task }
-    state.polling = true
-    state.error = ''
+    const token = Symbol()
+    pollers.set(taskId, token)
+    if (state.selectedTaskId === taskId) state.error = ''
     try {
-      while (generation === taskGeneration && supported.value) {
+      while (pollers.get(taskId) === token && supported.value) {
         const result = await request('/native/task-status', { query: { task_id: taskId } })
-        if (generation !== taskGeneration) return
+        if (pollers.get(taskId) !== token) return
         if (result?.task_id !== taskId || result.kind !== 'game-import' || !['pending', 'done'].includes(result?.status)) throw new Error('后台任务状态不完整')
-        state.task = { ...state.task, ...result }
-        state.uncertain = false
-        if (result.status === 'done') {
-          state.tasks = state.tasks.map(item => item.task_id === taskId ? state.task : item)
-          try { await refreshGames(state.task) } catch { app.notify('无法刷新游戏列表，请稍后重试。', 'warning') }
+        const current = state.tasks.find(item => item.task_id === taskId)
+        if (result.status === 'done' || current?.status === 'done') {
+          await completeTask(result.status === 'done' ? { ...current, ...result } : current)
           return
         }
+        rememberTask(result)
         await new Promise(resolve => setTimeout(resolve, state.open && document.visibilityState !== 'hidden' ? 750 : 1800))
       }
-    } catch {
-      if (generation === taskGeneration) state.error = '无法查看导入进度，请刷新。'
+    } catch (error) {
+      if (pollers.get(taskId) !== token) return
+      if (error instanceof ApiError && error.status === 404) {
+        rememberTask({ task_id: taskId, status: 'done', success: false, error: '导入状态已失效，请重新导入。' })
+      }
+      if (state.selectedTaskId === taskId) state.error = '无法查看导入进度，请刷新。'
+      else if (error instanceof ApiError && error.status === 404) app.notify('无法查看导入结果，请重新导入。', 'warning')
     } finally {
-      if (generation === taskGeneration) { state.polling = false; pollingTaskId = '' }
+      if (pollers.get(taskId) === token) pollers.delete(taskId)
     }
   }
 
@@ -280,7 +327,7 @@ export function useGameImport() {
       && cmpGameId(item.game_id, state.draft.game_id) && importPathKey(item.path) === importPathKey(state.draft.path)
       && (state.draft.source !== 'fever' || state.draft.distribution_id === -1
         || String(item.distribution_id) === String(state.draft.distribution_id)))
-    if (task) adoptTask(task)
+    if (task) openTask({ ...task, requested_distribution_id: state.draft.distribution_id })
     else state.error = '无法确认是否已导入，请刷新。'
   }
 
@@ -304,7 +351,11 @@ export function useGameImport() {
         if (result?.success === false) throw new ApiError(result.error || '无法开始导入', 400, result)
         throw new Error('未确认导入任务')
       }
-      adoptTask({ source: draft.source, game_id: draft.game_id, path: draft.path, ...result, kind: 'game-import' })
+      const task = { source: draft.source, game_id: draft.game_id, path: draft.path,
+        ...(result.status === 'pending' ? { distribution_id: draft.distribution_id } : {}),
+        ...result, kind: 'game-import', requested_distribution_id: draft.distribution_id }
+      state.submitting = false
+      openTask(task)
     } catch (error) {
       if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
         if (!unavailable(error)) state.error = importErrorMessage(error.message)
@@ -324,7 +375,7 @@ export function useGameImport() {
     try {
       const result = await request('/native/import-control', { method: 'POST', body: { task_id: state.task.task_id, action: 'cancel' } })
       if (result?.success !== true) throw new Error(result?.error || '未确认取消请求')
-      if (result.task?.task_id === state.task?.task_id) state.task = { ...state.task, ...result.task }
+      if (result.task?.task_id === state.selectedTaskId) rememberTask(result.task)
       if (!state.polling) monitorTask(state.task)
     } catch { state.error = '无法取消导入，请刷新。' }
     finally { state.controlling = false }
@@ -337,7 +388,7 @@ export function useGameImport() {
       const result = await request('/native/import-control', { method: 'POST', body: { task_id: task.task_id, action: 'acknowledge' } })
       if (result?.success !== true) throw new Error('未确认结果已读')
       state.tasks = state.tasks.filter(item => item.task_id !== task.task_id)
-      if (!state.open && state.task?.task_id === task.task_id) state.task = null
+      if (state.selectedTaskId === task.task_id) state.selectedTaskId = ''
       return true
     } catch { app.notify('无法关闭导入结果，请重试。', 'warning'); return false }
     finally { state.controlling = false }
@@ -352,7 +403,7 @@ export function useGameImport() {
   async function continueImport() {
     if (busy.value || pending.value || state.uncertain) return
     if (!await acknowledge(state.task)) return
-    state.task = null
+    state.selectedTaskId = ''
     await openWizard({ source: state.mode })
   }
   function retryStatus() {
@@ -362,9 +413,9 @@ export function useGameImport() {
     return readState()
   }
   function dispose() {
-    taskGeneration += 1; loadGeneration += 1; pickerGeneration += 1
-    state.polling = false; state.loading = false; state.picking = false; pollingTaskId = ''
+    loadGeneration += 1; pickerGeneration += 1; pollers.clear()
+    state.loading = false; state.picking = false
   }
 
-  return { state: readonly(state), supported, busy, pending, canConfirm, manualDistributions, selectedDistribution, distributionTitle, distributionCorrection, resultCorrection, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
+  return { state: readonly(state), supported, busy, pending, pendingImports, pendingFor, canConfirm, manualDistributions, selectedDistribution, distributionTitle, distributionCorrection, resultCorrection, restore, openTask, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
 }

@@ -28,17 +28,18 @@ const viewHost = ref(null)
 useRetainedNavigation(app.state, () => viewHost.value)
 const switching = useAccountSwitching()
 const importing = useGameImport()
-let deferredImportPrompt = false
+let deferredImportPrompt = null
 let importWizardOpened = false
 watch(() => importing.state.open, open => {
-  if (open) { importWizardOpened = true; deferredImportPrompt = false }
+  if (open) { importWizardOpened = true; deferredImportPrompt = null }
 }, { flush: 'sync' })
 watch(() => switching.state.open, open => {
   if (open || !deferredImportPrompt) return
-  deferredImportPrompt = false
+  const task = deferredImportPrompt
+  deferredImportPrompt = null
   // Only the bootstrap prompt is deferred. Never reopen after a user visit or
   // cover a different dialog (the account wizard may be leaving right now).
-  if (!importWizardOpened && !document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openWizard()
+  if (!importWizardOpened && !document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openTask(task)
 }, { flush: 'post' })
 let switchingRouteHandled = false
 watch(() => app.state.backendVersion, () => {
@@ -155,10 +156,10 @@ onMounted(async () => {
   } catch {
     if (app.state.connection === 'connected') app.notify('页面数据读取失败，请在应用设置的诊断页刷新全部数据；当前显示可能不完整', 'error')
   }
-  importing.restore().then(() => {
-    if (!importing.state.task || importWizardOpened) return
-    if (switching.state.open) deferredImportPrompt = true
-    else if (!document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openWizard()
+  importing.restore().then(task => {
+    if (!task || importWizardOpened) return
+    if (switching.state.open) deferredImportPrompt = task
+    else if (!document.querySelector('.modal-backdrop:not(.dialog-fade-leave-active)')) importing.openTask(task)
   }).catch(() => {})
   // Populate every installed game once per launcher process. Hovering the
   // current-game icon must remain a presentation-only operation.

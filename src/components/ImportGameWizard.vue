@@ -4,7 +4,7 @@ import WinSelect from './WinSelect.vue'
 import { computed, ref } from 'vue'
 import { ArrowLeft, ArrowRight, Check, CircleAlert, FolderOpen } from '@lucide/vue'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
-import { importErrorMessage, importResultWarning, useGameImport } from '../composables/useGameImport'
+import { importErrorMessage, importProgressValue, importResultWarning, useGameImport } from '../composables/useGameImport'
 import ModalShell from './ModalShell.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
 
@@ -24,10 +24,7 @@ const taskTitle = computed(() => {
   if (state.task.cancelled || state.task.phase === 'cancelled') return '已取消'
   return state.task.success === true ? '已导入' : '导入失败'
 })
-const progress = computed(() => {
-  const value = state.task?.progress_percent
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : Number.NaN
-})
+const progress = computed(() => importProgressValue(state.task))
 const results = computed(() => state.task?.results?.length ? state.task.results : state.task?.status === 'done' && state.task.game_id ? [state.task] : [])
 const dismissible = computed(() => !state.submitting && !state.picking && !state.controlling)
 function selected(candidate) {
@@ -75,6 +72,7 @@ function warningFor(result) {
           <table class="switching-table" aria-label="发烧平台游戏记录"><thead><tr><th class="switching-check-cell" scope="col">选择</th><th scope="col">游戏与路径</th></tr></thead><tbody><tr v-for="(candidate, index) in state.candidates" :key="`${candidate.game_id}:${candidate.distribution_id}:${candidate.path}`" :class="{ selected: selected(candidate) }"><td class="switching-check-cell"><input :id="`import-candidate-${index}`" type="radio" name="import-candidate" :checked="selected(candidate)" :disabled="importing.busy.value" :aria-label="`选择${gameTitle(candidate)}`" @change="importing.selectCandidate(candidate)" /></td><td><label :for="`import-candidate-${index}`"><strong>{{ gameTitle(candidate) }}</strong><small v-if="distributionFor(candidate)">{{ distributionFor(candidate) }}</small><small>{{ candidate.path }}</small></label></td></tr></tbody></table>
         </div>
       </template>
+      <p v-if="importing.pendingFor(state.draft.game_id, importing.selectedDistribution.value)" class="switching-option-note">此游戏版本正在导入。</p>
     </section>
     <section v-else-if="state.step === 1" class="switching-game-section">
       <h3>确认导入</h3>

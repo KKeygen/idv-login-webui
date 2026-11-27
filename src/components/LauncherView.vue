@@ -9,7 +9,7 @@ import { Clock3, Download, FolderOpen, Pause, Play } from '@lucide/vue'
 import { ApiError, openExternal, request, resolveTask, resourceUrl } from '../api'
 import { cmpGameId, gameTitle, useAppStore } from '../composables/useAppStore'
 import { supportsNextFeverFeatures } from '../featureVersions'
-import { importErrorMessage, importResultWarning, postImportDownload, useGameImport } from '../composables/useGameImport'
+import { importErrorMessage, importResultWarning, importTargetKey, postImportDownload, useGameImport } from '../composables/useGameImport'
 import { requiredInstallBytes as resolveRequiredInstallBytes } from '../installRequirements'
 import { showConfirm } from '../dialogService'
 import GameSettingsModal from './GameSettingsModal.vue'
@@ -19,6 +19,7 @@ import MotionProgressRing from './MotionProgressRing.vue'
 const app = useAppStore()
 const importing = useGameImport()
 const distributionId = computed({ get: () => app.state.distributionId, set: value => app.setDistribution(value) })
+const selectedImport = computed(() => importing.pendingFor(app.state.gameId, distributionId.value))
 const showNews = ref(localStorage.getItem('idv.news.visible') !== 'false')
 const gameSettingsOpen = ref(false)
 const installModalOpen = ref(false)
@@ -41,8 +42,13 @@ const launcherReady = computed(() => Boolean(app.state.launcher?.game_id))
 const EASTER_EGG_URL = 'https://goldrush.snakekiss.com/'
 
 const distributions = computed(() => app.state.launcher?.distributions || [])
-const distribution = computed(() => distributions.value.find(item => String(item.distribution_id) === String(distributionId.value)) || distributions.value[0] || null)
-const installation = computed(() => distribution.value?.installation || (!distribution.value ? app.state.launcher?.game?.installation : null) || null)
+const distribution = computed(() => distributions.value.find(item => String(item.distribution_id) === String(distributionId.value))
+  || (distributionId.value === '-1' ? null : distributions.value[0]) || null)
+const installation = computed(() => {
+  if (distribution.value) return distribution.value.installation || null
+  const unassigned = app.currentGame.value?.installations?.find(item => String(item.distribution_id ?? -1) === '-1')
+  return unassigned || (!distributions.value.length ? app.state.launcher?.game?.installation : null) || null
+})
 const installationId = computed(() => installation.value?.installation_id || '')
 const installed = computed(() => Boolean(installation.value?.installed))
 const needsUpdate = computed(() => Boolean(distribution.value?.needs_update))
@@ -158,6 +164,9 @@ async function refreshIfCurrent(scope) {
 }
 
 watch(distributions, list => {
+  if (!app.state.launcher?.game_id || !cmpGameId(app.state.launcher.game_id, app.state.gameId)) return
+  if (selectedImport.value || (distributionId.value === '-1'
+    && app.state.railTabs.some(tab => tab.key === importTargetKey(app.state.gameId, -1)))) return
   const preferred = app.state.launcher?.game?.default_distribution
   if (!list.some(item => String(item.distribution_id) === app.state.distributionId)) app.setDistribution(list.find(item => item.distribution_id === preferred)?.distribution_id ?? list[0]?.distribution_id ?? '')
 }, { immediate: true })
@@ -257,8 +266,9 @@ function followPostImport(result) {
   beginDownload({ task_id: task.id, operation: task.operation }, 'launcher-update')
 }
 
-watch(() => importing.state.task, task => {
-  if (task?.status === 'done' && task.success) followPostImport(task)
+watch(() => [...importing.state.tasks].reverse().find(task => task.status === 'done' && task.success && postImportDownload(task).id
+  && cmpGameId(task.game_id, app.state.gameId) && String(task.distribution_id) === String(distributionId.value)), task => {
+  if (task) followPostImport(task)
 })
 
 async function submitLegacyImport(name, endpoint, options, optional = false) {
@@ -549,10 +559,12 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
 
       <LauncherControls
         :download="downloadVisual"
-        :accent="!downloadActive && launcherReady && !app.state.busy"
+        :import-task="selectedImport"
+        :accent="!selectedImport && !downloadActive && launcherReady && !app.state.busy"
         :brand-style="brandButtonStyle"
         :locate-visible="!installed && !canImportFever && Boolean(distribution?.can_download)"
         :locate-disabled="Boolean(app.state.busy)"
+        @show-import="importing.openTask(selectedImport)"
         @settings="gameSettingsOpen = true"
         @locate="locate"
       >
