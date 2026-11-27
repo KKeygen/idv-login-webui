@@ -560,11 +560,12 @@ function downloadPhaseLabel(phase, fallback = '正在处理…') {
       <LauncherControls
         :download="downloadVisual"
         :import-task="selectedImport"
+        :import-controlling="importing.state.controlling"
         :accent="!selectedImport && !downloadActive && launcherReady && !app.state.busy"
         :brand-style="brandButtonStyle"
         :locate-visible="!installed && !canImportFever && Boolean(distribution?.can_download)"
         :locate-disabled="Boolean(app.state.busy)"
-        @show-import="importing.openTask(selectedImport)"
+        @cancel-import="importing.cancel(selectedImport)"
         @settings="gameSettingsOpen = true"
         @locate="locate"
       >
