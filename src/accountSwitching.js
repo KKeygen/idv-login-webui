@@ -1,19 +1,11 @@
 // Account switching is an explicit opt-in feature introduced in tool 6.3.2.
 // Account choices are keyed by SDK game; installations of that game share MPayDB.
-export const ACCOUNT_SWITCHING_VERSION = '6.3.2'
+import * as versionRules from './featureVersions.js'
+
+export const ACCOUNT_SWITCHING_VERSION = versionRules.ACCOUNT_SWITCHING_VERSION
+export const supportsAccountSwitching = versionRules.supportsAccountSwitching
 export const ACCOUNT_SWITCHING_HELP = 'https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#doxcnkZhq60pvSqmqpkz9ICeMHe'
 export const ACCOUNT_SWITCHING_GAME_HELP = 'https://kkeygenn.feishu.cn/wiki/J0V4wbm3Bi5LOVkEN7wcvwSEn0e#share-HtZ1dmClKomeogxEgrycpnnnnVf'
-
-export function supportsAccountSwitching(version) {
-  const match = String(version || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?$/i)
-  if (!match) return false
-  const current = match.slice(1, 4).map(Number)
-  const minimum = [6, 3, 2]
-  for (let index = 0; index < minimum.length; index += 1) {
-    if (current[index] !== minimum[index]) return current[index] > minimum[index]
-  }
-  return true
-}
 
 export function recentAccounts(accounts = []) {
   return [...accounts].sort((left, right) => (Number(right.last_login_time) || 0) - (Number(left.last_login_time) || 0))

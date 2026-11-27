@@ -10,7 +10,7 @@ import { useAppStore } from '../composables/useAppStore'
 import { useAccountSwitching } from '../composables/useAccountSwitching'
 import { showConfirm } from '../dialogService'
 import { changeDebugMode, FEEDBACK_URL } from '../debugMode'
-import { supportsHotfixSettings, supportsNextFeverFeatures } from '../featureVersions'
+import { supportsHotfixSettings, supportsNativeSaveToggle, supportsNextFeverFeatures } from '../featureVersions'
 import HelpTip from './HelpTip.vue'
 import HotfixSettings from './HotfixSettings.vue'
 import MotionProgressRing from './MotionProgressRing.vue'
@@ -70,30 +70,13 @@ async function optional(path, options, unsupportedKey) {
     throw error
   }
 }
-function parseVersion(value) {
-  const match = String(value || '').match(/\d+(?:\.\d+)*/)
-  return match ? match[0].split('.').map(Number) : null
-}
-function versionGreaterThan(value, target) {
-  const current = parseVersion(value)
-  const base = parseVersion(target)
-  if (!current || !base) return false
-  const length = Math.max(current.length, base.length)
-  for (let index = 0; index < length; index += 1) {
-    const left = current[index] || 0
-    const right = base[index] || 0
-    if (left !== right) return left > right
-  }
-  return false
-}
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
     const health = await request('/health').catch(() => null)
     const toolVersion = health && typeof health.version === 'string' ? health.version : ''
-    // 6.3.0-stable 起原生保存成为默认行为，不再提供开关；旧后端健康检查没有 version 字段。
-    form.nativeSupported = !(toolVersion && versionGreaterThan(toolVersion, '6.3.0-stable'))
+    form.nativeSupported = supportsNativeSaveToggle(toolVersion)
     const [scan, native, proxy, debug] = await Promise.allSettled([
       optional('/scan-record-setting', {}, 'scanSupported'),
       form.nativeSupported

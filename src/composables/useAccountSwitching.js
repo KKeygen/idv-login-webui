@@ -1,6 +1,7 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, request } from '../api'
-import { normalizeSwitchingConfig, supportsAccountSwitching } from '../accountSwitching'
+import { normalizeSwitchingConfig } from '../accountSwitching'
+import { supportsAccountSwitching } from '../featureVersions'
 import { useAppStore } from './useAppStore'
 
 const state = reactive({ open: false, loading: false, saving: false, loaded: false, unavailable: false, error: '', config: normalizeSwitchingConfig(), games: [] })

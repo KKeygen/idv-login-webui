@@ -5,8 +5,7 @@ import { computed, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 
 import { Check, LogIn, Pencil, Trash2, Star, UserPlus, CheckSquare, QrCode, CircleHelp } from '@lucide/vue'
 import { ApiError, request, resolveTask, openExternal } from '../api'
 import { cmpGameId, shortGameId, useAppStore } from '../composables/useAppStore'
-import { supportsAccountSwitching } from '../accountSwitching'
-import { supportsNextFeverFeatures, versionAtLeast } from '../featureVersions'
+import { supportsAccountChannel, supportsAccountSwitching, supportsNextFeverFeatures } from '../featureVersions'
 import { showConfirm, showPrompt } from '../dialogService'
 import { createAccountRelogin } from '../accountRelogin'
 import ModalShell from './ModalShell.vue'
@@ -112,7 +111,7 @@ const channels = computed(() => {
   if (!list.some(item => item.channel === 'uc_platform')) {
     list.push({ channel: 'uc_platform', name: channelNames['uc_platform'] || '九游账号' })
   }
-  return list.filter(item => item.min_version === undefined || versionAtLeast(app.state.backendVersion, item.min_version))
+  return list.filter(item => supportsAccountChannel(app.state.backendVersion, item.min_version))
 })
 function formatTime(value) { return value ? new Date(Number(value) * 1000).toLocaleString() : '从未登录' }
 function toggle(uuid) { const next = new Set(selected.value); next.has(uuid) ? next.delete(uuid) : next.add(uuid); selected.value = next }
