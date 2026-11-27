@@ -25,6 +25,7 @@ const taskTitle = computed(() => {
   return state.task.success === true ? '已导入' : '导入失败'
 })
 const progress = computed(() => importProgressValue(state.task))
+const progressOnly = computed(() => state.submitting || (importing.pending.value && state.polling))
 const results = computed(() => state.task?.results?.length ? state.task.results : state.task?.status === 'done' && state.task.game_id ? [state.task] : [])
 const dismissible = computed(() => !state.submitting && !state.picking && !state.controlling)
 function selected(candidate) {
@@ -45,7 +46,7 @@ function warningFor(result) {
 </script>
 
 <template>
-  <ModalShell :open="importing.supported.value && state.open" title="导入游戏" modal-class="account-switching-wizard game-import-wizard" :dismissible="dismissible" @close="importing.close">
+  <ModalShell :open="importing.supported.value && state.open" title="导入游戏" :modal-class="['game-import-wizard', progressOnly ? 'app-dialog game-import-progress-dialog' : 'account-switching-wizard']" :dismissible="dismissible" @close="importing.close">
     <ol v-if="state.task?.source !== 'startup' && !state.submitting && !importing.pending.value" class="switching-stepper" aria-label="导入步骤"><li v-for="(label, index) in steps" :key="label" :class="{ active: index === state.step, done: index < state.step }" :aria-current="index === state.step ? 'step' : undefined"><span><Check v-if="index < state.step" :size="12" /><template v-else>{{ index + 1 }}</template></span>{{ label }}</li></ol>
     <StepTransition @moving="stepMoving = $event" :step="state.step">
     <div v-if="state.loading || state.submitting" class="content-loading"><MotionProgressRing :size="32" :aria-label="state.submitting ? '正在导入' : '正在加载'" /></div>

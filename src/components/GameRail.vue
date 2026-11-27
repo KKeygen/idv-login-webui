@@ -215,8 +215,13 @@ function toggleWindowMaximize(event) {
   <header class="game-rail" :class="{ open: open || pinned || importing.pendingImports.value.some(task => task.game_id) }" @pointerenter="emit('pointer-enter', $event)" @pointerleave="emit('pointer-leave', $event)" @pointerdown="prepareWindowDrag" @pointermove="continueWindowDrag" @pointerup="cancelWindowDrag" @pointercancel="cancelWindowDrag" @dblclick="toggleWindowMaximize">
     <TransitionGroup name="rail-item" tag="div" class="game-rail-items">
       <button v-for="item in railItems" :key="item.key" class="game-tab" :class="{ active: item.active, 'is-dragging': draggingKey === item.key }" :aria-label="item.importing ? `${item.title}，正在导入` : item.title" :draggable="!item.tab.temporary" @dragstart="dragStart($event, item)" @dragend="draggingKey = ''" @dragover.prevent @drop="dropItem($event, item)" @keydown="moveByKeyboard($event, item)" @click="activateRailItem(item)">
-        <span class="game-tab-icon"><img v-if="item.icon" :src="item.icon" alt="" width="40" height="40" decoding="async" /><span v-else>{{ item.fallback }}</span><span class="game-icon-mask" aria-hidden="true"></span></span>
-        <MotionProgressRing v-if="item.importing" class="game-tab-import-progress" :size="20" :value="importProgressValue(item.importing)" :aria-label="`${item.title}正在导入`" />
+        <span class="game-tab-icon">
+          <img v-if="item.icon" :src="item.icon" alt="" width="40" height="40" decoding="async" />
+          <span v-else>{{ item.fallback }}</span><span class="game-icon-mask" aria-hidden="true"></span>
+          <span v-if="item.importing" class="game-tab-import-badge">
+            <MotionProgressRing :size="16" :value="importProgressValue(item.importing)" :aria-label="`${item.title}正在导入`" />
+          </span>
+        </span>
       </button>
       <button key="add-game" class="game-tab add-game-tab" aria-label="打开游戏库" @click="openCatalog">
         <span class="game-tab-icon"><Plus :size="21" /></span>

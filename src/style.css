@@ -2843,6 +2843,7 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 .account-projection-state { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; margin-top: 4px; }
 
 /* Import tasks share the existing wizard's flat steps, tables and footer. */
+.game-import-progress-dialog .content-loading { min-height: 88px; }
 .game-import-wizard .switching-option-note { margin: 12px 0; line-height: 1.7; }
 .game-import-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .game-import-sources .selected { color: var(--accent); border-color: var(--accent); }
@@ -2854,5 +2855,5 @@ button.reveal-pointer-active:not([data-reveal="off"]):active::after,
 .game-import-candidates, .game-import-results { max-height: 280px; }
 .game-import-status { display: flex; align-items: center; gap: 12px; margin: 22px 0; }
 .game-import-status h3 { margin: 0; }
-.game-tab-import-progress { position: absolute; z-index: 2; right: 1px; bottom: 1px; border-radius: 50%; background: var(--surface, #202020); pointer-events: none; }
+.game-tab-import-badge { position: absolute; z-index: 2; right: 2px; bottom: 2px; display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid #ffffff24; border-radius: 50%; background: #202020; pointer-events: none; }
 .launch-import-progress { display: grid; width: 100%; height: 44px; place-items: center; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; }
