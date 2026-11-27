@@ -1,15 +1,12 @@
 <script>
 import { ref } from 'vue'
 
-// Settings sections unmount during navigation. Keep the task visible on return.
+// An installation may still finish while another settings section is open.
+const installing = ref(false)
 const snapshot = ref(null)
-const loading = ref(false)
-const applying = ref(false)
-const restarting = ref(false)
-const taskId = ref('')
-const taskResults = ref([])
+const selected = ref([])
 const error = ref('')
-const notice = ref(null)
+const notice = ref('')
 </script>
 
 <script setup>
@@ -24,115 +21,80 @@ import WinInfoBar from './WinInfoBar.vue'
 
 const app = useAppStore()
 const supported = computed(() => supportsHotfixSettings(app.state.backendVersion))
+const loading = ref(false)
 const expandedId = ref('')
-const statusLabels = {
-  pending: '待应用',
-  applied: '已应用',
-  restart_required: '待重启',
-  pending_validation: '待验证',
-  skipped: '已跳过',
-  blocked: '已阻止',
-  superseded: '已被替代',
-}
+const busy = computed(() => loading.value || installing.value)
 const entries = computed(() => snapshot.value?.items || [])
+const available = computed(() => entries.value.filter(item => item.applyable))
+const installed = item => ['applied', 'pending_validation'].includes(item.status)
 const groups = computed(() => [
-  { title: '可应用的热更新', entries: entries.value.filter(item => item.applyable) },
-  { title: '其他热更新记录', entries: entries.value.filter(item => !item.applyable) },
+  { title: '可安装的热更新', entries: available.value },
+  { title: '已安装', entries: entries.value.filter(installed) },
+  { title: '其他热更新记录', entries: entries.value.filter(item => !item.applyable && !installed(item)) },
 ].filter(group => group.entries.length))
-const availableCount = computed(() => snapshot.value?.applyable_count || 0)
-const restartRequired = computed(() => snapshot.value?.restart_required === true)
-const busy = computed(() => loading.value || applying.value || restarting.value)
-const canApply = computed(() => Boolean(supported.value && snapshot.value?.available && availableCount.value && !busy.value
-  && !taskId.value && !error.value))
-const resultById = computed(() => new Map(taskResults.value.map(result => [result.id, result])))
 
 async function loadSnapshot() {
-  if (!supported.value) return
   const data = await request('/hotfix-status')
   if (data?.success !== true || typeof data.version !== 'string' || typeof data.available !== 'boolean'
-    || !Array.isArray(data.items) || !Number.isInteger(data.applyable_count)) {
-    throw new Error('未能读取当前版本的热更新状态')
+    || !Array.isArray(data.items)) {
+    throw new Error('未能读取当前版本的热更新')
   }
   snapshot.value = data
-  if (!data.restart_required && notice.value?.restarting) notice.value = null
-}
-
-async function followApply() {
-  const result = await pollTask('/native/task-status', taskId.value)
-  if (result?.status !== 'done' || !Array.isArray(result.results)) {
-    throw new Error('未确认热更新任务结果')
+  selected.value = data.items.filter(item => item.applyable).map(item => item.id)
+  if (data.install_and_restart !== true) {
+    notice.value = '当前工具版本仅支持查看热更新。'
   }
-  taskResults.value = result.results
-  taskId.value = ''
-  const staged = result.results.filter(item => item.status === 'staged').length
-  const failed = result.results.filter(item => item.status === 'failed').length
-  const skipped = result.results.filter(item => item.status === 'skipped').length
-  const summary = [
-    staged ? `已准备 ${staged} 项` : '',
-    failed ? `${failed} 项失败` : '',
-    skipped ? `${skipped} 项已跳过` : '',
-  ].filter(Boolean).join('，')
-  notice.value = {
-    tone: result.success === true && !failed ? 'success' : 'warning',
-    text: summary || result.error || '本次没有准备任何更新。',
-  }
-  if (result.restart_required && snapshot.value) snapshot.value = { ...snapshot.value, restart_required: true }
 }
 
 async function readStatus() {
   if (!supported.value || busy.value) return
   error.value = ''
+  notice.value = ''
   loading.value = true
   try {
-    if (taskId.value) {
-      applying.value = true
-      await followApply()
-    }
     await loadSnapshot()
   } catch (failure) {
-    error.value = failure instanceof ApiError && failure.status === 404 && !taskId.value
+    error.value = failure instanceof ApiError && failure.status === 404
       ? '当前工具版本不支持在此查看热更新。'
-      : taskId.value ? '更新任务可能仍在运行。请重新读取状态。'
-        : '无法读取热更新状态。请确认工具已启动并重新读取。'
+      : '无法读取热更新。请确认工具已启动并重新读取。'
   } finally {
     loading.value = false
-    applying.value = false
   }
 }
 
-async function applyPending() {
-  if (!canApply.value) return
-  applying.value = true
-  taskResults.value = []
-  notice.value = null
+async function installSelected() {
+  if (busy.value || !snapshot.value?.available || !snapshot.value.install_and_restart || !selected.value.length) return
+  const ids = [...selected.value]
+  installing.value = true
+  error.value = ''
+  notice.value = ''
   try {
-    const result = await request('/hotfix-apply', { method: 'POST', body: {} })
-    if (result?.success !== true || !result.task_id) throw new Error('未确认热更新任务已开始')
-    taskId.value = result.task_id
-    await followApply()
-    await loadSnapshot()
-  } catch (failure) {
-    if (taskId.value) error.value = '更新任务可能仍在运行。请重新读取状态。'
-    else if (notice.value) error.value = '已收到更新结果，但无法读取最新状态。请重新读取。'
-    else error.value = failure instanceof ApiError ? failure.message : '无法确认更新是否已开始。请重新读取状态。'
-  } finally {
-    applying.value = false
-  }
-}
-
-async function restartTool() {
-  if (!supported.value || busy.value || taskId.value || error.value || !restartRequired.value) return
-  restarting.value = true
-  notice.value = null
-  try {
-    const result = await request('/restart', { method: 'POST' })
-    if (result?.success !== true || result.restarting !== true) throw new Error('未确认重启')
+    const started = await request('/hotfix-apply', { method: 'POST', body: { ids } })
+    if (started?.success !== true || !started.task_id) throw new Error('未能确认安装已开始')
+    const result = await pollTask('/native/task-status', started.task_id)
+    if (result?.success !== true || result.restarting !== true) {
+      throw new Error(result?.error || '工具未能开始重启')
+    }
     snapshot.value = null
-    notice.value = { tone: 'info', text: '工具正在重启。重新连接后，请读取热更新状态。', restarting: true }
-  } catch {
-    error.value = '无法确认工具是否正在重启。请确认工具已启动并重新读取状态。'
+    notice.value = '下载和校验完成，工具正在重启。'
+  } catch (failure) {
+    // A reboot can retire the in-memory task before this browser receives its final poll.
+    if (failure instanceof TypeError || failure instanceof ApiError && failure.status === 404) {
+      try {
+        await loadSnapshot()
+        if (ids.every(id => entries.value.some(item => item.id === id && installed(item)))) {
+          notice.value = '所选热更新已安装。'
+          return
+        }
+      } catch {
+        snapshot.value = null
+      }
+      notice.value = '连接中断。工具恢复后可重新读取热更新。'
+    } else {
+      error.value = failure.message || '无法安装热更新。'
+    }
   } finally {
-    restarting.value = false
+    installing.value = false
   }
 }
 
@@ -155,45 +117,42 @@ onMounted(readStatus)
     </div>
 
     <WinInfoBar v-if="error" :closable="false" severity="error" :message="error" />
-    <WinInfoBar v-if="notice" :closable="false" :severity="notice.tone" :message="notice.text" />
+    <WinInfoBar v-if="notice" :closable="false" severity="info" :message="notice" />
     <WinInfoBar v-if="snapshot && !snapshot.available && !error" :closable="false" severity="warning"
       :message="snapshot.available_reason || '官方热更新清单当前不可用。请检查连接后重新读取。'" />
-    <WinInfoBar v-if="restartRequired" :closable="false" severity="warning"
-      message="更新已通过校验。重启工具后将应用更新。"
-      :action-label="restarting ? '正在重启…' : '重启工具'" :action-disabled="busy || Boolean(taskId) || Boolean(error)" @action="restartTool" />
     <div v-if="loading && !snapshot" class="content-loading" role="status">
       <MotionProgressRing :size="28" aria-hidden="true" /><span>正在读取热更新状态…</span>
     </div>
     <template v-else-if="snapshot">
-      <div v-if="snapshot.available" class="setting-row hotfix-apply">
+      <div v-if="snapshot.available && snapshot.install_and_restart && available.length" class="setting-row hotfix-apply">
         <span>
-          <strong>{{ availableCount ? `${availableCount} 项可应用` : '没有可应用的热更新' }}</strong>
-          <small v-if="availableCount">工具将先校验并准备更新，重启后应用。</small>
+          <strong>已选 {{ selected.length }} 项热更新</strong>
+          <small>下载并校验完成后，工具会自动重启。</small>
         </span>
-        <button v-if="availableCount || applying" :class="restartRequired ? 'quiet-button' : 'primary'" type="button" :disabled="!canApply" @click="applyPending">
-          <MotionProgressRing v-if="applying" :size="16" aria-hidden="true" />{{ applying ? '正在准备更新…' : '应用全部待更新项' }}
+        <button class="primary" type="button" :disabled="busy || !selected.length" @click="installSelected">
+          <MotionProgressRing v-if="installing" :size="16" aria-hidden="true" />{{ installing ? '正在下载和校验…' : '安装所选更新' }}
         </button>
       </div>
       <div v-for="group in groups" :key="group.title" class="hotfix-group">
         <h3>{{ group.title }}</h3>
-        <WinExpander v-for="item in group.entries" :key="item.id" :expanded="expandedId === item.id"
-          @update:expanded="open => expandedId = open ? item.id : ''">
-          <template #header>
-            <span class="hotfix-entry-header">
-              <strong :title="item.module">{{ item.module }}</strong>
-              <small :data-applyable="item.applyable">{{ statusLabels[item.status] || '状态未知' }}</small>
-            </span>
-          </template>
-          <p>{{ item.note || '此热更新未提供说明。' }}</p>
-          <p v-if="item.status === 'pending_validation'" class="hotfix-diagnostic">更新已加载，正常退出并再次启动工具后确认。</p>
-          <p v-if="item.message" class="hotfix-diagnostic">{{ item.message }}</p>
-          <p v-if="resultById.get(item.id)?.message" :class="{ 'hotfix-error': resultById.get(item.id)?.status === 'failed' }">
-            {{ resultById.get(item.id).message }}
-          </p>
-          <p v-if="item.commit" class="hotfix-commit">
-            <span>更新提交</span><code :title="item.commit">{{ item.commit.slice(0, 12) }}</code>
-          </p>
-        </WinExpander>
+        <div v-for="item in group.entries" :key="item.id" class="hotfix-entry">
+          <input v-if="item.applyable && snapshot.install_and_restart" v-model="selected" class="hotfix-selection"
+            type="checkbox" :value="item.id" :aria-label="`安装 ${item.module}`" :disabled="busy" />
+          <WinExpander :expanded="expandedId === item.id"
+            @update:expanded="open => expandedId = open ? item.id : ''">
+            <template #header>
+              <span class="hotfix-entry-header">
+                <strong :title="item.module">{{ item.module }}</strong>
+                <small>{{ item.applyable ? '可安装' : installed(item) ? '已安装' : '不可安装' }}</small>
+              </span>
+            </template>
+            <p>{{ item.note || '此热更新未提供说明。' }}</p>
+            <p v-if="item.message" class="hotfix-diagnostic">{{ item.message }}</p>
+            <p v-if="item.commit" class="hotfix-commit">
+              <span>更新提交</span><code :title="item.commit">{{ item.commit.slice(0, 12) }}</code>
+            </p>
+          </WinExpander>
+        </div>
       </div>
       <p v-if="snapshot.available && !entries.length" class="hotfix-empty">当前版本暂无热更新记录。</p>
     </template>
@@ -214,9 +173,10 @@ onMounted(readStatus)
 .hotfix-group h3 { margin-bottom: 4px; }
 .hotfix-entry-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; padding: 10px 0; }
 .hotfix-entry-header strong { font-weight: 500; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
-.hotfix-entry-header small[data-applyable="true"] { color: var(--accent); }
+.hotfix-entry { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.hotfix-entry > :last-child { flex: 1; min-width: 0; }
+.hotfix-selection { margin: 20px 0 0 6px; accent-color: var(--accent); }
 .hotfix-diagnostic { color: var(--muted); }
-.hotfix-error { color: #ff99a4; overflow-wrap: anywhere; }
 .hotfix-group p { margin: 0; overflow-wrap: anywhere; }
 .hotfix-group p + p { margin-top: 8px; }
 </style>
