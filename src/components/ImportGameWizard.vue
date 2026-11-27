@@ -16,11 +16,21 @@ const steps = ['选择来源', '确认导入', '进度与结果']
 const phaseLabels = { preparing: '正在准备导入', checking: '正在读取安装状态', saving: '正在保存安装记录', finished: '导入已完成', failed: '导入未完成', cancelled: '导入已取消' }
 const selectedGame = computed(() => app.state.games.find(game => cmpGameId(game.game_id, state.draft.game_id)))
 const selectedTitle = computed(() => state.draft.display_name || gameTitle(selectedGame.value || {}, state.draft.game_id))
+const selectedDistributionTitle = computed(() => importing.distributionTitle(state.draft.game_id, importing.selectedDistribution.value))
+const distributionOptions = computed(() => importing.manualDistributions.value.map(item => ({
+  value: String(item.distribution_id), label: importing.distributionTitle(state.draft.game_id, item.distribution_id),
+})))
+const confirmNote = computed(() => {
+  if (!app.supportsFeverUpdateModes.value) return '确认后将读取安装状态并登记路径。'
+  return state.draft.source === 'fever'
+    ? '将导入发烧游戏平台记录，并按记录中的已安装版本检查更新。'
+    : '将登记所选 EXE 的路径，并校验最新版文件清单，修复有差异的文件。'
+})
 const taskTitle = computed(() => {
   if (state.uncertain) return '正在确认后台是否已接收请求'
   if (state.task?.status === 'done') {
     if (state.task.cancelled || state.task.phase === 'cancelled') return '导入已取消'
-    return state.task.success === true ? '导入已完成' : '导入未完成'
+    return state.task.success === true ? '安装记录已处理' : '导入未完成'
   }
   return phaseLabels[state.task?.phase] || '正在后台处理'
 })
@@ -36,6 +46,9 @@ function selected(candidate) {
 }
 function titleFor(result) {
   return gameTitle(app.state.games.find(game => cmpGameId(game.game_id, result.game_id)) || result, result.game_id)
+}
+function distributionFor(result) {
+  return importing.distributionTitle(result.game_id, result.distribution_id)
 }
 </script>
 
@@ -53,6 +66,10 @@ function titleFor(result) {
       <template v-if="state.mode === 'manual'">
         <label class="game-import-game-label" for="import-game-id">对应游戏</label>
         <WinSelect id="import-game-id" :model-value="state.draft.game_id" :disabled="importing.busy.value" :options="[{value: '', label: '请选择对应游戏', disabled: true}, ...app.state.games.map(game => ({value: game.game_id, label: gameTitle(game)}))]" @change="importing.setGame($event.target.value)" />
+        <template v-if="distributionOptions.length > 1">
+          <label class="game-import-game-label" for="import-distribution-id">游戏版本</label>
+          <WinSelect id="import-distribution-id" :model-value="importing.selectedDistribution.value" placeholder="请选择游戏版本" :disabled="importing.busy.value" :options="distributionOptions" @update:model-value="importing.setDistribution" />
+        </template>
         <div class="install-path-field" :class="{ empty: !state.draft.path }"><FolderOpen :size="16" /><span :title="state.draft.path">{{ state.draft.path || '选择游戏的 EXE 启动程序' }}</span><button class="inline-command" :disabled="importing.busy.value" @click="importing.chooseExecutable"><MotionProgressRing v-if="state.picking" :size="14" />{{ state.picking ? '正在选择' : state.draft.path ? '更改' : '选择' }}</button></div>
         <p class="switching-option-note">仅支持 EXE，不支持快捷方式或文件夹。请选择与上方游戏对应的启动程序。</p>
         <p v-if="!app.state.games.length" class="switching-validation">暂时没有可选择的游戏，请确认游戏列表已成功加载。</p>
@@ -61,14 +78,14 @@ function titleFor(result) {
         <p class="switching-option-note">请选择要导入的发烧游戏平台记录；不会自动选择其他游戏。</p>
         <div v-if="!state.candidates.length" class="switching-inline-empty">没有找到可导入的发烧游戏平台记录。</div>
         <div v-else class="switching-table-wrap game-import-candidates">
-          <table class="switching-table" aria-label="发烧平台游戏记录"><thead><tr><th class="switching-check-cell" scope="col">选择</th><th scope="col">游戏与路径</th></tr></thead><tbody><tr v-for="(candidate, index) in state.candidates" :key="`${candidate.game_id}:${candidate.distribution_id}:${candidate.path}`" :class="{ selected: selected(candidate) }"><td class="switching-check-cell"><input :id="`import-candidate-${index}`" type="radio" name="import-candidate" :checked="selected(candidate)" :disabled="importing.busy.value" :aria-label="`选择${gameTitle(candidate)}`" @change="importing.selectCandidate(candidate)" /></td><td><label :for="`import-candidate-${index}`"><strong>{{ gameTitle(candidate) }}</strong><small>{{ candidate.path }}</small></label></td></tr></tbody></table>
+          <table class="switching-table" aria-label="发烧平台游戏记录"><thead><tr><th class="switching-check-cell" scope="col">选择</th><th scope="col">游戏与路径</th></tr></thead><tbody><tr v-for="(candidate, index) in state.candidates" :key="`${candidate.game_id}:${candidate.distribution_id}:${candidate.path}`" :class="{ selected: selected(candidate) }"><td class="switching-check-cell"><input :id="`import-candidate-${index}`" type="radio" name="import-candidate" :checked="selected(candidate)" :disabled="importing.busy.value" :aria-label="`选择${gameTitle(candidate)}`" @change="importing.selectCandidate(candidate)" /></td><td><label :for="`import-candidate-${index}`"><strong>{{ gameTitle(candidate) }}</strong><small v-if="distributionFor(candidate)">{{ distributionFor(candidate) }}</small><small>{{ candidate.path }}</small></label></td></tr></tbody></table>
         </div>
       </template>
     </section>
     <section v-else-if="state.step === 1" class="switching-game-section">
       <h3>确认导入信息</h3>
-      <dl class="game-import-summary"><dt>游戏</dt><dd>{{ selectedTitle }}</dd><dt>来源</dt><dd>{{ state.draft.source === 'fever' ? '发烧游戏平台' : '手动选择 EXE' }}</dd><dt>路径</dt><dd>{{ state.draft.path }}</dd></dl>
-      <p class="switching-option-note">确认后将读取安装状态并保存记录。若版本未知但分发可确认，导入后会另外排队修复。关闭向导不会停止已开始的导入。</p>
+      <dl class="game-import-summary"><dt>游戏</dt><dd>{{ selectedTitle }}</dd><template v-if="selectedDistributionTitle"><dt>游戏版本</dt><dd>{{ selectedDistributionTitle }}</dd></template><dt>来源</dt><dd>{{ state.draft.source === 'fever' ? '发烧游戏平台' : '手动选择 EXE' }}</dd><dt>路径</dt><dd>{{ state.draft.path }}</dd></dl>
+      <p class="switching-option-note">{{ confirmNote }}关闭向导不会停止已开始的导入。</p>
     </section>
     <section v-else class="switching-game-section" aria-live="polite">
       <p v-if="state.task?.source === 'startup'" class="switching-option-note">工具启动时已自动开始导入，您可以在这里查看进度与结果。</p>
@@ -79,13 +96,24 @@ function titleFor(result) {
       <p v-if="state.task?.error" class="switching-validation" role="alert">{{ state.task.error }}</p>
       <dl v-if="state.task?.path || state.uncertain" class="game-import-summary"><dt>路径</dt><dd>{{ state.task?.path || state.draft.path }}</dd></dl>
       <div v-if="results.length" class="switching-table-wrap game-import-results">
-        <table class="switching-table" aria-label="导入结果"><thead><tr><th scope="col">游戏</th><th scope="col">结果</th></tr></thead><tbody><tr v-for="(result, index) in results" :key="`${result.game_id}:${result.installation_id || index}`"><td>{{ titleFor(result) }}<small v-if="result.path">{{ result.path }}</small></td><td>{{ result.success === true ? '已导入' : result.cancelled ? '已取消' : '未导入' }}<small v-if="result.detected_installed_version || (!result.state_status && result.version)">已确认版本：{{ result.detected_installed_version || result.version }}</small><small v-if="postImportMessage(result)">{{ postImportMessage(result) }}</small><small v-if="result.error">{{ result.error }}</small></td></tr></tbody></table>
+        <table class="switching-table" aria-label="导入结果"><thead><tr><th scope="col">游戏</th><th scope="col">结果</th></tr></thead><tbody>
+          <tr v-for="(result, index) in results" :key="`${result.game_id}:${result.installation_id || index}`">
+            <td>{{ titleFor(result) }}<small v-if="result.path">{{ result.path }}</small></td>
+            <td>
+              {{ result.success === true ? '路径已登记' : result.cancelled ? '已取消' : '未导入' }}
+              <small v-if="result.success && distributionFor(result)">已按「{{ distributionFor(result) }}」处理</small>
+              <small v-if="result.detected_installed_version || (!result.state_status && result.version)">已确认版本：{{ result.detected_installed_version || result.version }}</small>
+              <small v-if="postImportMessage(result)">{{ postImportMessage(result) }}</small>
+              <small v-if="result.error">{{ result.error }}</small>
+            </td>
+          </tr>
+        </tbody></table>
       </div>
       <button v-if="state.uncertain || (importing.pending.value && !state.polling)" class="quiet-button" :disabled="importing.busy.value" @click="importing.retryStatus">重新读取任务状态</button>
     </section>
     </StepTransition>
     <p v-if="state.error" class="switching-validation" role="alert">{{ state.error }}</p>
-    <button v-if="state.error && state.step < 2" class="text-button" :disabled="importing.busy.value" @click="importing.readState">重新读取导入来源</button>
+    <button v-if="state.error && state.step < 2" class="text-button" :disabled="importing.busy.value" @click="importing.refreshSources">重新读取导入来源</button>
     <template #footer>
       <span v-if="state.submitting" class="switching-footer-note" role="status">正在发起后台导入…</span>
       <div class="switching-footer-actions">

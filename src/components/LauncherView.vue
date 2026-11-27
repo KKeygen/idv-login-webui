@@ -261,11 +261,14 @@ watch(() => importing.state.task, task => {
   if (task?.status === 'done' && task.success) followPostImport(task)
 })
 
-function reportLegacyPostImport(result) {
+function reportLegacyPostImport(result, gameId) {
   if (!result?.success) return
   followPostImport(result)
-  const message = postImportMessage(result)
-  if (message) app.notify(message, result.download_status === 'failed' || result.download_status === 'skipped' ? 'warning' : 'success')
+  const distribution = importing.distributionTitle(result.game_id || gameId, result.distribution_id)
+  const message = ['路径已登记', distribution && `已按「${distribution}」处理`, postImportMessage(result)]
+    .filter(Boolean).join('。')
+  const { status } = postImportDownload(result)
+  app.notify(message, ['failed', 'skipped'].includes(status) ? 'warning' : 'success')
 }
 
 async function monitorDownload(taskId, initial = {}) {
@@ -361,7 +364,10 @@ async function install() {
 }
 async function locate() {
   const scope = captureSelection()
-  if (importing.supported.value) return importing.openWizard({ source: 'manual', gameId: scope.gameId })
+  const selectedDistribution = scope.distributionId || -1
+  if (importing.supported.value) return importing.openWizard({
+    source: 'manual', gameId: scope.gameId, distributionId: selectedDistribution,
+  })
   const picked = await app.guarded('pick-game', async () => {
     const pending = await request('/native/pick-executable', { method: 'POST', body: { title: `定位${scope.title}启动程序` } })
     return resolveTask(pending, '/native/task-status')
@@ -374,11 +380,11 @@ async function locate() {
   const imported = await app.mutate('locate-game', '/launcher-locate', {
     method: 'POST',
     body: {
-      game_id: scope.gameId, path: picked.path,
+      game_id: scope.gameId, path: picked.path, distribution_id: selectedDistribution,
       ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
     },
-  }, { reload: false, optional: true })
-  reportLegacyPostImport(imported)
+  }, { reload: false, optional: true, successMessage: '' })
+  reportLegacyPostImport(imported, scope.gameId)
   await refreshIfCurrent(scope)
 }
 async function update({ repair = canRepairMissing.value } = {}) {
@@ -445,9 +451,9 @@ async function importFever() {
   }, {
     reload: false,
     startMessage: '正在从发烧平台读取并校验游戏记录…',
-    successMessage: '已从发烧平台导入游戏',
+    successMessage: '',
   })
-  reportLegacyPostImport(imported)
+  reportLegacyPostImport(imported, scope.gameId)
   await refreshIfCurrent(scope)
 }
 async function importFeverList() {
@@ -472,9 +478,9 @@ async function importFeverList() {
   }, {
     reload: false,
     startMessage: '正在从发烧平台读取并校验游戏记录…',
-    successMessage: '已从发烧平台导入游戏',
+    successMessage: '',
   })
-  reportLegacyPostImport(imported)
+  reportLegacyPostImport(imported, scope.gameId)
   await refreshIfCurrent(scope)
 }
 async function locateFromSettings() { gameSettingsOpen.value = false; await locate() }

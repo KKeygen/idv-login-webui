@@ -410,7 +410,7 @@ export function useAppStore() {
     state: readonly(state),
     supportsFeverUpdateModes: computed(() => state.nativeCapabilities?.fever_update_modes_v1 === true),
     currentGame: computed(() => state.games.find(item => cmpGameId(item.game_id, state.gameId)) || null),
-    notify, dismissNotice, reorderRailTabs, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
+    notify, dismissNotice, reorderRailTabs, guarded, loadGames, loadNativeCapabilities, loadInstalledRail, loadLauncher, requestLauncher, loadAccounts, ensureViewData, refreshCurrent, selectGame, selectRailTab, mutate,
     setView: view => {
       if (!APP_VIEWS.has(view)) return Promise.resolve(null)
       state.view = view

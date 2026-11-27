@@ -26,11 +26,12 @@ export function postImportDownload(result) {
 export function postImportMessage(result) {
   const task = postImportDownload(result)
   const action = task.operation === 'repair' ? '修复' : '更新'
-  if (task.status === 'up_to_date') return '已是最新版本，无需更新'
+  if (task.status === 'up_to_date') return `游戏文件已就绪，无需${action}`
   if (task.status === 'queued' || task.status === 'already_pending') {
-    return task.operation === 'repair' ? '未读到已安装版本，已提交后台修复' : '已提交后台版本更新'
+    return `已提交后台${action}，可在对应游戏页查看进度`
   }
-  if (task.status === 'failed' || task.status === 'skipped') return task.error || '未开始自动' + action
+  if (task.status === 'skipped') return task.error ? `未自动下载。${task.error}` : '未自动下载'
+  if (task.status === 'failed') return task.error || `未能启动自动${action}`
   return ''
 }
 
@@ -40,8 +41,25 @@ export function useGameImport() {
     && app.state.nativeCapabilities?.import_tasks_v1 === true && !state.unavailable)
   const busy = computed(() => state.loading || state.picking || state.submitting || state.controlling)
   const pending = computed(() => state.task?.status === 'pending')
+  function distributionsFor(gameId) {
+    return app.state.railLaunchers.find(item => cmpGameId(item.game_id, gameId))?.distributions || []
+  }
+  function distributionTitle(gameId, distributionId) {
+    if (distributionId == null || distributionId === '' || String(distributionId) === '-1') return ''
+    const item = distributionsFor(gameId).find(item => String(item.distribution_id) === String(distributionId))
+    return item?.launcher?.display_name || item?.name || item?.launcher?.app_name || `版本 ${distributionId}`
+  }
+  const manualDistributions = computed(() => distributionsFor(state.draft.game_id))
+  const selectedDistribution = computed(() => {
+    if (state.draft.source === 'fever') return state.draft.distribution_id
+    const ids = manualDistributions.value.map(item => String(item.distribution_id))
+    const selected = String(state.draft.distribution_id)
+    if (!ids.length || ids.includes(selected)) return selected
+    return ids.length === 1 ? ids[0] : '-1'
+  })
   const canConfirm = computed(() => Boolean(state.draft.game_id && state.draft.path
     && (state.draft.source === 'fever' || /\.exe$/i.test(state.draft.path))
+    && (state.draft.source === 'fever' || manualDistributions.value.length <= 1 || selectedDistribution.value !== '-1')
     && !busy.value && !state.uncertain))
 
   function unavailable(error) {
@@ -83,6 +101,25 @@ export function useGameImport() {
     if (refreshed?.some(item => item.status === 'rejected')) throw new Error('部分游戏记录刷新失败')
   }
 
+  async function readManualDistributions() {
+    if (!state.open || state.step !== 0 || state.mode !== 'manual' || !state.draft.game_id) return
+    const generation = ++loadGeneration
+    state.loading = true
+    state.error = ''
+    try {
+      const data = await app.requestLauncher(state.draft.game_id)
+      if (data?.success === false) throw new Error(data.error)
+    } catch {
+      if (generation === loadGeneration) state.error = '未能读取游戏版本。可以重试，或继续由工具识别分发。'
+    } finally {
+      if (generation === loadGeneration) state.loading = false
+    }
+  }
+
+  async function refreshSources() {
+    if (await readState()) await readManualDistributions()
+  }
+
   function adoptTask(task) {
     // A state-list response may predate the poll that already finished this task.
     if (state.task?.task_id === task.task_id && state.task.status === 'done' && task.status === 'pending') task = state.task
@@ -119,7 +156,10 @@ export function useGameImport() {
     }
     state.mode = source === 'fever' ? 'fever' : 'manual'
     state.step = 0
-    state.draft = { source: 'manual', game_id: gameId || '', path: '', distribution_id: -1 }
+    state.draft = {
+      source: 'manual', game_id: gameId || '', path: '',
+      distribution_id: state.mode === 'manual' && distributionId !== '' ? distributionId ?? -1 : -1,
+    }
     const result = await readState()
     if (!result || !state.open) return
     const existing = state.tasks.find(item => item.status === 'pending') || state.tasks[0]
@@ -128,21 +168,28 @@ export function useGameImport() {
     if (state.mode === 'fever') {
       const preferred = state.candidates.find(item => (
         cmpGameId(item.game_id, gameId)
-        && (distributionId === -1 || String(item.distribution_id) === String(distributionId))
+        && (String(distributionId) === '-1' || String(item.distribution_id) === String(distributionId))
         && (!path || item.path === path)
       ))
       if (preferred) selectCandidate(preferred)
-    }
+    } else await readManualDistributions()
   }
 
   function setMode(mode) {
-    if (busy.value || state.step !== 0) return
+    if (busy.value || state.step !== 0 || state.mode === mode) return
     state.mode = mode === 'fever' ? 'fever' : 'manual'
     state.draft = { source: 'manual', game_id: app.state.gameId || '', path: '', distribution_id: -1 }
     state.error = ''
+    return readManualDistributions()
   }
   function setGame(gameId) {
-    if (!busy.value && state.step === 0 && state.mode === 'manual') state.draft.game_id = gameId
+    if (busy.value || state.step !== 0 || state.mode !== 'manual' || cmpGameId(gameId, state.draft.game_id)) return
+    state.draft.game_id = gameId
+    state.draft.distribution_id = -1
+    return readManualDistributions()
+  }
+  function setDistribution(distributionId) {
+    if (!busy.value && state.step === 0 && state.mode === 'manual') state.draft.distribution_id = distributionId
   }
   function selectCandidate(candidate) {
     if (busy.value || state.step !== 0) return
@@ -220,7 +267,7 @@ export function useGameImport() {
 
   async function submit() {
     if (!supported.value || state.step !== 1 || !canConfirm.value) return
-    const draft = { ...state.draft }
+    const draft = { ...state.draft, distribution_id: Number(selectedDistribution.value) }
     submissionBaselineIds = new Set([...state.tasks, ...state.recentTasks].map(item => item.task_id))
     state.submitting = true
     state.error = ''
@@ -237,7 +284,7 @@ export function useGameImport() {
         if (result?.success === false) throw new ApiError(result.error || '无法开始导入', 400, result)
         throw new Error('未确认导入任务')
       }
-      adoptTask({ ...draft, ...result, kind: 'game-import' })
+      adoptTask({ source: draft.source, game_id: draft.game_id, path: draft.path, ...result, kind: 'game-import' })
     } catch (error) {
       if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
         if (!unavailable(error)) state.error = error.message || '导入请求被拒绝，请检查所选游戏与路径'
@@ -299,5 +346,5 @@ export function useGameImport() {
     state.polling = false; state.loading = false; state.picking = false; pollingTaskId = ''
   }
 
-  return { state: readonly(state), supported, busy, pending, canConfirm, restore, openWizard, readState, setMode, setGame, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
+  return { state: readonly(state), supported, busy, pending, canConfirm, manualDistributions, selectedDistribution, distributionTitle, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, continueImport, retryStatus, dispose }
 }
