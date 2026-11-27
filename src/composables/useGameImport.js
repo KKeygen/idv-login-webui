@@ -1,6 +1,6 @@
 import { computed, reactive, readonly } from 'vue'
 import { ApiError, request, resolveTask } from '../api'
-import { supportsNextFeverFeatures } from '../featureVersions'
+import { supportsNextFeverFeatures, supportsStableGameImport } from '../featureVersions'
 import { cmpGameId, gameTitle, useAppStore } from './useAppStore'
 import { gameRailTabKey } from '../gameRailStorage'
 
@@ -56,6 +56,7 @@ export function useGameImport() {
   const app = useAppStore()
   const supported = computed(() => supportsNextFeverFeatures(app.state.backendVersion)
     && app.state.nativeCapabilities?.import_tasks_v1 === true && !state.unavailable)
+  const stableRouting = computed(() => supportsStableGameImport(app.state.backendVersion))
   const busy = computed(() => state.loading || state.picking || state.submitting || state.controlling)
   const pendingImports = computed(() => supported.value ? state.tasks.filter(task => task.status === 'pending') : [])
   function pendingFor(gameId, distributionId) {
@@ -71,7 +72,7 @@ export function useGameImport() {
     return item?.launcher?.display_name || item?.name || item?.launcher?.app_name || `版本 ${distributionId}`
   }
   function distributionCorrection(gameId, requested, actual) {
-    if (String(requested) === String(actual) || requested == null || requested === '' || String(requested) === '-1') return ''
+    if (!stableRouting.value || String(requested) === String(actual) || requested == null || requested === '' || String(requested) === '-1') return ''
     const title = distributionTitle(gameId, actual)
     return title ? `已识别为「${title}」` : ''
   }
@@ -89,7 +90,7 @@ export function useGameImport() {
     else state.tasks.push(task)
     return state.tasks[existing ? index : state.tasks.length - 1]
   }
-  const manualDistributions = computed(() => distributionsFor(state.draft.game_id))
+  const manualDistributions = computed(() => stableRouting.value ? distributionsFor(state.draft.game_id) : [])
   const selectedDistribution = computed(() => {
     if (state.draft.source === 'fever') return state.draft.distribution_id
     const ids = manualDistributions.value.map(item => String(item.distribution_id))
@@ -100,7 +101,8 @@ export function useGameImport() {
   const canConfirm = computed(() => Boolean(state.draft.game_id && state.draft.path
     && (state.draft.source === 'fever' || /\.exe$/i.test(state.draft.path))
     && (state.draft.source === 'fever' || manualDistributions.value.length <= 1 || selectedDistribution.value !== '-1')
-    && !pendingFor(state.draft.game_id, selectedDistribution.value) && !busy.value && !state.uncertain))
+    && !(stableRouting.value ? pendingFor(state.draft.game_id, selectedDistribution.value) : pendingImports.value.length)
+    && !busy.value && !state.uncertain))
 
   function unavailable(error) {
     if (!(error instanceof ApiError) || error.status !== 404) return false
@@ -152,7 +154,7 @@ export function useGameImport() {
   }
 
   async function readManualDistributions() {
-    if (!state.open || state.step !== 0 || state.mode !== 'manual' || !state.draft.game_id) return
+    if (!stableRouting.value || !state.open || state.step !== 0 || state.mode !== 'manual' || !state.draft.game_id) return
     const generation = ++loadGeneration
     state.loading = true
     state.error = ''
@@ -201,7 +203,7 @@ export function useGameImport() {
     state.step = 0
     state.draft = {
       source: 'manual', game_id: gameId || app.state.gameId || '', path: '',
-      distribution_id: state.mode === 'manual' && distributionId !== '' ? distributionId ?? -1 : -1,
+      distribution_id: stableRouting.value && state.mode === 'manual' && distributionId !== '' ? distributionId ?? -1 : -1,
     }
     const result = await readState()
     if (!result || !state.open) return
@@ -229,7 +231,7 @@ export function useGameImport() {
     return readManualDistributions()
   }
   function setDistribution(distributionId) {
-    if (!busy.value && state.step === 0 && state.mode === 'manual') state.draft.distribution_id = distributionId
+    if (stableRouting.value && !busy.value && state.step === 0 && state.mode === 'manual') state.draft.distribution_id = distributionId
   }
   function selectCandidate(candidate) {
     if (busy.value || state.step !== 0) return
@@ -395,5 +397,5 @@ export function useGameImport() {
     state.loading = false; state.picking = false
   }
 
-  return { state: readonly(state), supported, busy, pendingImports, pendingFor, canConfirm, manualDistributions, selectedDistribution, distributionTitle, distributionCorrection, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, recoverSubmission, dispose }
+  return { state: readonly(state), supported, stableRouting, busy, pendingImports, pendingFor, canConfirm, manualDistributions, selectedDistribution, distributionTitle, distributionCorrection, restore, openWizard, refreshSources, setMode, setGame, setDistribution, selectCandidate, chooseExecutable, next, back, submit, cancel, close, recoverSubmission, dispose }
 }

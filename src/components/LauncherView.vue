@@ -402,7 +402,8 @@ async function locate() {
   const imported = await submitLegacyImport('locate-game', '/launcher-locate', {
     method: 'POST',
     body: {
-      game_id: scope.gameId, path: picked.path, distribution_id: selectedDistribution,
+      game_id: scope.gameId, path: picked.path,
+      ...(importing.stableRouting.value ? { distribution_id: selectedDistribution } : {}),
       ...(app.supportsFeverUpdateModes.value ? { update_after_import: true } : {}),
     },
   }, true)

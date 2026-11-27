@@ -1,6 +1,7 @@
 // The next Fever UI changes ship with the tool's 6.3.3 beta release.
 export const FEVER_NEXT_VERSION = '6.3.3-beta'
 const HOTFIX_SETTINGS_VERSION = '6.3.4-stable'
+const GAME_IMPORT_ROUTING_VERSION = '6.3.4-stable'
 const RELEASE_STAGES = { beta: 0, rc: 1, stable: 2 }
 
 function parseToolVersion(version) {
@@ -23,6 +24,10 @@ export function versionAtLeast(version, minimumVersion) {
 
 export function supportsNextFeverFeatures(version) {
   return versionAtLeast(version, FEVER_NEXT_VERSION)
+}
+
+export function supportsStableGameImport(version) {
+  return parseToolVersion(version)?.[3] === RELEASE_STAGES.stable && versionAtLeast(version, GAME_IMPORT_ROUTING_VERSION)
 }
 
 export function supportsHotfixSettings(version) {
